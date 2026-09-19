@@ -73,16 +73,23 @@ mvn clean package
 
 ## Install
 
-This plugin is **not published to Maven Central or maven.codelibs.org**, so
-the `wiki-fess` repo's usual `fess_plugins`/`FESS_PLUGINS` auto-fetch
-mechanism (which resolves `name:version` against Maven Central) won't pick it
-up. Instead, get the built JAR into the Fess container yourself, e.g.:
+This plugin is **not published to `maven.codelibs.org`**, so the `wiki-fess`
+repo's usual `fess_plugins`/`FESS_PLUGINS` auto-fetch mechanism won't pick it
+up: the official image's `run.sh` entrypoint only downloads plugins named
+`fess-ds-*`/`fess-ingest-*`/etc. from
+`https://maven.codelibs.org/release/org/codelibs/fess/<name>/<version>/`,
+verifying a `.sha1` checksum it fetches alongside the jar — there's no
+equivalent for a jar hosted elsewhere. Get the built JAR into the Fess
+container yourself instead:
 
-- Bind-mount or `COPY` `target/fess-ds-trello-15.8.0.jar` into
-  `/opt/fess/app/WEB-INF/lib/` in a custom image layered on
-  `ghcr.io/codelibs/fess:15.8.0`, or
-- Push it to a private Maven repo the container can reach and reference it
-  the same way `fess_plugins` references official plugins.
+- `COPY target/fess-ds-trello-15.8.0.jar` to
+  `/usr/share/fess/app/WEB-INF/plugin/` in a custom image layered on
+  `ghcr.io/codelibs/fess:15.8.0` (that's the exact directory `run.sh` itself
+  installs auto-fetched plugins into — confirmed from
+  [`codelibs/docker-fess`](https://github.com/codelibs/docker-fess)'s
+  `fess/15.8/run.sh`), or
+- Push it to a private Maven repo and replicate `run.sh`'s download+`.sha1`
+  logic yourself.
 
 Then restart the `fess01` container and create the data store config as
 described above (or via the admin REST API, following the pattern documented
