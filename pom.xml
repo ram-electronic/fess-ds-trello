@@ -89,6 +89,21 @@
 			<artifactId>slf4j-api</artifactId>
 			<version>${slf4j.version}</version>
 		</dependency>
+		<!-- Renders Trello's Markdown-formatted card/comment text to plain text
+		     for Fess's content/digest fields (see MarkdownPlainTextRenderer),
+		     already pulled in transitively at provided scope via fess-parent's
+		     own dependencyManagement, declared explicitly here (like fess/
+		     opensearch above) rather than relying on that silently. -->
+		<dependency>
+			<groupId>org.commonmark</groupId>
+			<artifactId>commonmark</artifactId>
+			<!-- Not managed by fess-parent's own dependencyManagement (it's only
+			     pulled in transitively via another dependency's own POM), so
+			     pinned explicitly here, matching the version already resolved
+			     transitively (confirmed via mvn dependency:tree). -->
+			<version>0.24.0</version>
+			<scope>provided</scope>
+		</dependency>
 		<dependency>
 			<groupId>junit</groupId>
 			<artifactId>junit</artifactId>
