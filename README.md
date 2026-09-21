@@ -57,14 +57,10 @@ url=url
 last_modified=last_modified
 ```
 
-**Each line is evaluated independently against the raw source record below —
-never against another line's own output.** `digest=content` looks tempting
-(reuse the `content` line you just wrote), but Fess doesn't work that way:
-every line runs its own, separate expression against the same underlying
-record, so a line can't see what an earlier line produced. If you want
-`digest` to hold the same thing as `content`, repeat the whole expression
-(as above) rather than referencing `content` as if it were a variable — that
-resolves to nothing and silently leaves the field empty.
+**Each line is evaluated independently against the raw source record — never
+against another line's output**, so `digest=content` silently resolves to
+nothing. Repeat the whole expression instead (as above) if you want `digest`
+to match `content`.
 
 Source fields available: `id`, `name`, `desc`, `url`, `board_id`, `list`,
 `due`, `last_modified`, `labels`, and `comments` (only present when
