@@ -10,8 +10,11 @@ This was scaffolded from
 official copy-from template) and follows the HTTP-client shape of
 [`fess-ds-slack`](https://github.com/codelibs/fess-ds-slack), the closest
 existing analog (token-authenticated REST API, JSON responses, pagination).
-**It has not been built or run against a live Fess instance yet** — treat it
-as a working draft to compile, test, and adjust, not a finished plugin.
+Confirmed to build cleanly and register as a selectable Data Store type
+(`TrelloDataStore`) in Fess Admin, against Fess 15.8.0 / OpenSearch 3.6.0 —
+see [Status / TODO](#status--todo) below for what's still outstanding
+(mainly: no automated tests yet, so treat it as tested-by-hand rather than
+production-hardened).
 
 ## What it crawls
 
@@ -79,23 +82,33 @@ official image's `run.sh` entrypoint only downloads plugins named
 `https://maven.codelibs.org/release/org/codelibs/fess/<name>/<version>/`,
 verifying a `.sha1` checksum it fetches alongside the jar — there's no
 equivalent for a jar hosted elsewhere. Get the built JAR into the Fess
-container yourself instead:
+container yourself instead, either:
 
-- `COPY target/fess-ds-trello-15.8.0.jar` to
-  `/usr/share/fess/app/WEB-INF/plugin/` in a custom image layered on
-  `ghcr.io/codelibs/fess:15.8.0` (that's the exact directory `run.sh` itself
-  installs auto-fetched plugins into — confirmed from
-  [`codelibs/docker-fess`](https://github.com/codelibs/docker-fess)'s
-  `fess/15.8/run.sh`), or
-- Push it to a private Maven repo and replicate `run.sh`'s download+`.sha1`
-  logic yourself.
+- **Download a built jar from [Releases](../../releases)** — every version
+  tag (`vX.Y.Z`) gets a `fess-ds-trello-<fess-version>.jar` asset attached,
+  built by this repo's own `.github/workflows/release.yml`. No local Java/
+  Maven toolchain needed, just `curl`/`wget` the asset. This is the easiest
+  path if you don't need to modify the plugin itself, or
+- **Build it yourself** with `mvn clean package` (see [Build](#build)
+  above).
+
+Either way, `COPY` the resulting jar to
+`/usr/share/fess/app/WEB-INF/plugin/` in a custom image layered on
+`ghcr.io/codelibs/fess:15.8.0` — that's the exact directory `run.sh` itself
+installs auto-fetched plugins into (confirmed from
+[`codelibs/docker-fess`](https://github.com/codelibs/docker-fess)'s
+`fess/15.8/run.sh`). Alternatively, push it to a private Maven repo and
+replicate `run.sh`'s download+`.sha1` logic yourself.
 
 Then restart the `fess01` container and create the data store config as
 described above (or via Fess's own admin REST API).
 
 ## Status / TODO
 
-- Not yet built or tested against a live Fess instance.
+- Built and confirmed to register correctly in Fess Admin (Fess 15.8.0 /
+  OpenSearch 3.6.0), but not yet run against a real Trello board / verified
+  end-to-end (indexing actual cards, permission mapping, etc.) — tested by
+  hand, not automated.
 - No automated tests yet (see `fess-ds-example`'s `ExampleDataStoreTest` for
   the expected shape).
 - `TrelloClient` is a minimal hand-rolled client; `fess-ds-slack` shows a
