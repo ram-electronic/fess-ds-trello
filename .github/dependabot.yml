@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Watches pom.xml's fess-parent version (and its own dependencies) against
+  # Maven Central — opens a PR (with a notification) whenever Fess cuts a
+  # new release, since fess-parent's version tracks Fess's own.
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  # Keeps the two workflow files (ci.yml, release.yml) themselves current
+  # (actions/checkout, actions/setup-java, softprops/action-gh-release).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
