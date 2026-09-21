@@ -25,8 +25,12 @@ last-activity timestamp, label names, its containing list's name, and
 ## Requirements
 
 - Java 21+, Maven 3.x
-- Fess 15.8.0 (pinned via `pom.xml`'s parent version; bump this alongside
-  whatever Fess version you're installing the built jar into)
+- Fess 15.8.0 (pinned via `pom.xml`'s `<parent>` version; bump this if you
+  rebuild against a newer Fess). This plugin's own version (`pom.xml`'s
+  top-level `<version>`, and its release tags) is independent semver, not
+  tied to Fess's version — unlike the official `codelibs/fess-ds-*` plugins,
+  it isn't published to `maven.codelibs.org`, so nothing resolves it by
+  matching Fess's version the way `FESS_PLUGINS` does for those.
 - A Trello API key + token (see below)
 
 ## Configuration
@@ -91,7 +95,9 @@ equivalent for a jar hosted elsewhere. Get the built JAR into the Fess
 container yourself instead, either:
 
 - **Download a built jar from [Releases](../../releases)** — every version
-  tag (`vX.Y.Z`) gets a `fess-ds-trello-<fess-version>.jar` asset attached,
+  tag (`vX.Y.Z`, this plugin's own version — see [Requirements](#requirements)
+  for why it's independent of the Fess version below) gets a
+  `fess-ds-trello-<version>.jar` asset attached,
   built by this repo's own `.github/workflows/release.yml`. No local Java/
   Maven toolchain needed, just `curl`/`wget` the asset. This is the easiest
   path if you don't need to modify the plugin itself. Each jar is also
@@ -101,7 +107,7 @@ container yourself instead, either:
   workflow, from a specific commit) — verify with the [`gh`
   CLI](https://cli.github.com/):
   ```
-  gh attestation verify fess-ds-trello-15.8.0.jar -R ram-electronic/fess-ds-trello
+  gh attestation verify fess-ds-trello-1.0.0.jar -R ram-electronic/fess-ds-trello
   ```
   or
 - **Build it yourself** with `mvn clean package` (see [Build](#build)

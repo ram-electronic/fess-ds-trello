@@ -6,7 +6,15 @@
 	<artifactId>fess-ds-trello</artifactId>
 	<packaging>jar</packaging>
 	<name>Trello Data Store</name>
-	<version>15.8.0</version>
+	<!-- Independent semver, not tied to the Fess version below (parent's own
+	     <version> is what actually needs to track Fess, since that's the real
+	     build-time compatibility declaration; this plugin's own version has
+	     no such constraint: it's not published to maven.codelibs.org, so
+	     nothing resolves it by matching Fess's version the way FESS_PLUGINS
+	     does for the official codelibs fess-ds-* plugins. Bump this on its
+	     own release cadence; bump the parent version separately, only when
+	     actually rebuilding against a newer Fess. -->
+	<version>1.0.0</version>
 	<scm>
 		<connection>scm:git:git@github.com:ram-electronic/fess-ds-trello.git</connection>
 		<developerConnection>scm:git:git@github.com:ram-electronic/fess-ds-trello.git</developerConnection>
