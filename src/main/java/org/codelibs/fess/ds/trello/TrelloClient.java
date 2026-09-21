@@ -51,6 +51,18 @@ public class TrelloClient implements Closeable {
 
     private static final int PAGE_LIMIT = 1000;
 
+    private static final int CONNECT_TIMEOUT_MS = 10_000;
+
+    private static final int READ_TIMEOUT_MS = 30_000;
+
+    /** Retries on 429/5xx before giving up; a card-heavy board with
+     *  {@code include_comments=true} does one API call per card, which can
+     *  trip Trello's per-key/per-token rate limit long before a crawl
+     *  finishes. */
+    private static final int MAX_RETRIES = 5;
+
+    private static final long INITIAL_BACKOFF_MS = 500L;
+
     protected final String apiKey;
 
     protected final String apiToken;
@@ -132,27 +144,87 @@ public class TrelloClient implements Closeable {
     }
 
     /**
-     * Issues an authenticated GET request and parses the JSON response body.
+     * Issues an authenticated GET request and parses the JSON response body,
+     * retrying on rate-limit (429) and server-error (5xx) responses with
+     * exponential backoff (honoring Trello's {@code Retry-After} header when
+     * present) up to {@link #MAX_RETRIES} times.
      *
      * @param url The request URL, without query parameters.
      * @param params Extra query parameters (key/token are added automatically).
      * @return The parsed JSON body (a {@code List} or {@code Map}, per Trello's response shape).
      */
     protected Object get(final String url, final Map<String, String> params) {
-        final org.codelibs.curl.CurlRequest request = Curl.get(url).param("key", apiKey).param("token", apiToken);
-        for (final Map.Entry<String, String> entry : params.entrySet()) {
-            request.param(entry.getKey(), entry.getValue());
-        }
-        try (final CurlResponse response = request.execute()) {
-            if (response.getHttpStatusCode() != 200) {
-                throw new TrelloDataStoreException(
-                        "Trello API returned " + response.getHttpStatusCode() + " for " + url + ": " + response.getContentAsString());
+        Exception lastException = null;
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            final org.codelibs.curl.CurlRequest request =
+                    Curl.get(url).param("key", apiKey).param("token", apiToken).timeout(CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS);
+            for (final Map.Entry<String, String> entry : params.entrySet()) {
+                request.param(entry.getKey(), entry.getValue());
             }
-            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(response.getContentAsString(), Object.class);
-        } catch (final TrelloDataStoreException e) {
-            throw e;
-        } catch (final Exception e) {
-            throw new TrelloDataStoreException("Failed to call Trello API: " + url, e);
+            try (final CurlResponse response = request.execute()) {
+                final int status = response.getHttpStatusCode();
+                if (status == 200) {
+                    return new com.fasterxml.jackson.databind.ObjectMapper().readValue(response.getContentAsString(), Object.class);
+                }
+                if (isRetryable(status) && attempt < MAX_RETRIES) {
+                    sleepBeforeRetry(attempt, retryAfterMillis(response));
+                    continue;
+                }
+                throw new TrelloDataStoreException("Trello API returned " + status + " for " + url + ": " + response.getContentAsString());
+            } catch (final TrelloDataStoreException e) {
+                throw e;
+            } catch (final Exception e) {
+                lastException = e;
+                if (attempt < MAX_RETRIES) {
+                    sleepBeforeRetry(attempt, -1);
+                    continue;
+                }
+                throw new TrelloDataStoreException("Failed to call Trello API: " + url, e);
+            }
+        }
+        // Unreachable: every loop iteration either returns or throws, but the
+        // compiler can't see that from a for-loop condition alone.
+        throw new TrelloDataStoreException("Failed to call Trello API after " + MAX_RETRIES + " retries: " + url, lastException);
+    }
+
+    /**
+     * @param status An HTTP status code.
+     * @return {@code true} for a rate-limit (429) or server-error (5xx) response — both are
+     * expected to be transient, unlike a 4xx client error (bad key/token, missing board, ...).
+     */
+    private static boolean isRetryable(final int status) {
+        return status == 429 || status >= 500;
+    }
+
+    /**
+     * @param response A response carrying a (possibly absent) {@code Retry-After} header.
+     * @return The header's value in milliseconds, or {@code -1} if absent/unparseable.
+     */
+    private static long retryAfterMillis(final CurlResponse response) {
+        final String header = response.getHeaderValue("Retry-After");
+        if (StringUtil.isNotBlank(header)) {
+            try {
+                return Long.parseLong(header.trim()) * 1000L;
+            } catch (final NumberFormatException ignore) {
+                // Not a delay-in-seconds value (e.g. an HTTP-date) — fall back to backoff below.
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * @param attempt The retry attempt number so far (0-based).
+     * @param retryAfterMillis A server-supplied delay in milliseconds, or {@code -1} to fall
+     * back to exponential backoff ({@link #INITIAL_BACKOFF_MS} doubled per attempt).
+     */
+    private void sleepBeforeRetry(final int attempt, final long retryAfterMillis) {
+        final long delay = retryAfterMillis >= 0 ? retryAfterMillis : INITIAL_BACKOFF_MS * (1L << attempt);
+        logger.warn("Trello API call failed; retrying in {}ms (attempt {}/{})", delay, attempt + 1, MAX_RETRIES);
+        try {
+            Thread.sleep(delay);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new TrelloDataStoreException("Interrupted while waiting to retry a Trello API call", e);
         }
     }
 
