@@ -245,8 +245,8 @@ public class TrelloDataStore extends AbstractDataStore {
      * {@code board_id}, {@code list}, {@code due}, {@code last_modified}, {@code labels},
      * and, when requested, {@code comments}.
      */
-    protected Map<String, Object> createSourceRecord(final TrelloClient client, final String boardId,
-            final Map<String, String> listNames, final Map<String, Object> card, final boolean includeComments) {
+    protected Map<String, Object> createSourceRecord(final TrelloClient client, final String boardId, final Map<String, String> listNames,
+            final Map<String, Object> card, final boolean includeComments) {
         final Map<String, Object> source = new HashMap<>();
         final String cardId = (String) card.get("id");
         source.put("id", cardId);
