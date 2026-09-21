@@ -46,6 +46,7 @@ Set these in the data store config's **Parameter** field
 | `board_id` | yes | Comma-separated Trello board ids or shortLinks (the code at the end of a board URL, e.g. `https://trello.com/b/aBcD1234/my-board` → `aBcD1234`). |
 | `include_comments` | no | `true` to fetch each card's comments into a `comments` source field, each followed by a direct link to that comment (`<card-url>#comment-<id>`, the same format Trello's own "copy link to comment" feature produces) (default `false`; costs one extra API call per card). |
 | `include_closed_cards` | no | `true` to also crawl archived/closed cards (default `false`). |
+| `include_attachments` | no | `true` to also index each card's uploaded file attachments (txt, md, pdf, doc, docx) as separate documents, using Fess's built-in text extractor (default `false`; costs one extra API call per card, plus a download per qualifying attachment). Attachments over 20MB, non-uploads (e.g. linked URLs), and unrecognized extensions are skipped. |
 | `readInterval` | no | Milliseconds to sleep between cards (default `0`). |
 
 ### Script (field mapping)
@@ -69,6 +70,12 @@ to match `content`.
 Source fields available: `id`, `name`, `desc`, `url`, `board_id`, `list`,
 `due`, `last_modified`, `labels`, and `comments` (only present when
 `include_comments=true`).
+
+Attachment documents (when `include_attachments=true`) reuse the same field
+names as a card (`id`, `name`, `desc`, `url`, `board_id`, `last_modified`,
+`comments`) so the same script config indexes both without changes — `desc`
+holds the extracted attachment text instead of the card description, and
+`list`/`due`/`labels` aren't set (map to nothing/empty).
 
 ## Pagination note
 

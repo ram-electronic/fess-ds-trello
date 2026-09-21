@@ -142,6 +142,59 @@ public class TrelloDataStoreTest {
         assertEquals("", source.get("labels"));
     }
 
+    @Test
+    public void isExtractable_uploadedTextFile_true() {
+        assertTrue(dataStore.isExtractable(
+                new TrelloClient.Attachment("a1", "notes.txt", "https://trello.com/1/notes.txt", "text/plain", 100, true, null)));
+    }
+
+    @Test
+    public void isExtractable_notAnUpload_false() {
+        assertFalse(dataStore.isExtractable(
+                new TrelloClient.Attachment("a1", "notes.txt", "https://example.com/notes.txt", "text/plain", 100, false, null)));
+    }
+
+    @Test
+    public void isExtractable_unrecognizedExtension_false() {
+        assertFalse(dataStore.isExtractable(
+                new TrelloClient.Attachment("a1", "photo.png", "https://trello.com/1/photo.png", "image/png", 100, true, null)));
+    }
+
+    @Test
+    public void isExtractable_noExtension_false() {
+        assertFalse(
+                dataStore.isExtractable(new TrelloClient.Attachment("a1", "README", "https://trello.com/1/README", null, 100, true, null)));
+    }
+
+    @Test
+    public void isExtractable_oversized_false() {
+        assertFalse(dataStore.isExtractable(new TrelloClient.Attachment("a1", "big.pdf", "https://trello.com/1/big.pdf", "application/pdf",
+                21L * 1024 * 1024, true, null)));
+    }
+
+    @Test
+    public void isExtractable_unknownSize_stillExtractable() {
+        // Trello omits `bytes` for some attachments -- -1 shouldn't be treated as "oversized".
+        assertTrue(dataStore.isExtractable(
+                new TrelloClient.Attachment("a1", "notes.pdf", "https://trello.com/1/notes.pdf", "application/pdf", -1, true, null)));
+    }
+
+    @Test
+    public void createAttachmentSourceRecord_mapsFields() {
+        final TrelloClient.Attachment attachment = new TrelloClient.Attachment("a1", "notes.pdf", "https://trello.com/1/notes.pdf",
+                "application/pdf", 100, true, "2026-01-03T00:00:00.000Z");
+
+        final Map<String, Object> source = dataStore.createAttachmentSourceRecord("board1", attachment, "extracted text");
+
+        assertEquals("a1", source.get("id"));
+        assertEquals("notes.pdf", source.get("name"));
+        assertEquals("extracted text", source.get("desc"));
+        assertEquals("https://trello.com/1/notes.pdf", source.get("url"));
+        assertEquals("board1", source.get("board_id"));
+        assertEquals("2026-01-03T00:00:00.000Z", source.get("last_modified"));
+        assertEquals("", source.get("comments"));
+    }
+
     private static List<Map<String, Object>> labelList(final String... names) {
         final List<Map<String, Object>> labels = new ArrayList<>();
         for (final String name : names) {
