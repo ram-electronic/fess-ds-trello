@@ -12,9 +12,9 @@ official copy-from template) and follows the HTTP-client shape of
 existing analog (token-authenticated REST API, JSON responses, pagination).
 Confirmed to build cleanly and register as a selectable Data Store type
 (`TrelloDataStore`) in Fess Admin, against Fess 15.8.0 / OpenSearch 3.6.0 —
-see [Status / TODO](#status--todo) below for what's still outstanding
-(mainly: no automated tests yet, so treat it as tested-by-hand rather than
-production-hardened).
+see [Status / TODO](#status--todo) below for what's still outstanding (mainly:
+unit-tested but not yet run against a real Trello board end-to-end, so treat
+it as tested-by-hand rather than production-hardened).
 
 ## What it crawls
 
@@ -107,10 +107,12 @@ described above (or via Fess's own admin REST API).
 
 - Built and confirmed to register correctly in Fess Admin (Fess 15.8.0 /
   OpenSearch 3.6.0), but not yet run against a real Trello board / verified
-  end-to-end (indexing actual cards, permission mapping, etc.) — tested by
-  hand, not automated.
-- No automated tests yet (see `fess-ds-example`'s `ExampleDataStoreTest` for
-  the expected shape).
+  end-to-end (indexing actual cards, permission mapping, etc.) — checked by
+  hand so far, not automated.
+- Unit tests cover the pure logic (board id parsing, card-to-source-record
+  field mapping) — see `TrelloDataStoreTest`/`TrelloClientTest`. `storeData`
+  itself (the actual crawl loop) isn't covered, since it needs a live
+  Fess/Lasta Di container to test against.
 - `TrelloClient` is a minimal hand-rolled client; `fess-ds-slack` shows a
   fuller typed request/response API layer if this grows more endpoints.
 - Permission/ACL mapping (per-board visibility restriction via the data
