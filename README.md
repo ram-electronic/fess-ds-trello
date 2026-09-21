@@ -88,7 +88,16 @@ container yourself instead, either:
   tag (`vX.Y.Z`) gets a `fess-ds-trello-<fess-version>.jar` asset attached,
   built by this repo's own `.github/workflows/release.yml`. No local Java/
   Maven toolchain needed, just `curl`/`wget` the asset. This is the easiest
-  path if you don't need to modify the plugin itself, or
+  path if you don't need to modify the plugin itself. Each jar is also
+  signed with a [GitHub Artifact
+  Attestation](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)
+  (keyless, via Sigstore/OIDC — proves it was built by this repo's own
+  workflow, from a specific commit) — verify with the [`gh`
+  CLI](https://cli.github.com/):
+  ```
+  gh attestation verify fess-ds-trello-15.8.0.jar -R ram-electronic/fess-ds-trello
+  ```
+  or
 - **Build it yourself** with `mvn clean package` (see [Build](#build)
   above).
 

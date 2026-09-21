@@ -7,6 +7,11 @@ on:
 
 permissions:
   contents: write
+  # actions/attest-build-provenance needs both: id-token to mint the
+  # Sigstore/OIDC identity it signs with, attestations to publish the
+  # resulting attestation to this repo.
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -35,6 +40,16 @@ jobs:
           jar=$(find target -maxdepth 1 -name 'fess-ds-trello-*.jar' \
             ! -name '*-sources.jar' ! -name '*-javadoc.jar')
           echo "path=$jar" >> "$GITHUB_OUTPUT"
+
+      # Signs the jar with Sigstore via GitHub's OIDC identity (keyless --
+      # no GPG key to generate, store, or rotate) and publishes the
+      # attestation to this repo. Proves the jar came from this exact
+      # workflow run, on this exact commit -- verify with:
+      #   gh attestation verify fess-ds-trello-15.8.0.jar -R ram-electronic/fess-ds-trello
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.jar.outputs.path }}
 
       - name: Create release
         uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
