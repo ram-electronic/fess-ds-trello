@@ -44,7 +44,11 @@ import org.codelibs.fess.util.ComponentUtil;
  * <p>
  * Crawls every card on one or more Trello boards and feeds each card through
  * the standard Fess data store pipeline (see {@code fess-ds-example} for the
- * general pattern this follows).
+ * general pattern this follows). {@code desc} and each comment are rendered
+ * from Trello's Markdown source down to plain text ({@link MarkdownPlainTextRenderer})
+ * before being made available to the script map below — Trello's API has no
+ * pre-rendered plain-text alternative, so left as Markdown, raw syntax like
+ * {@code **bold**} would otherwise show up literally in a Fess search snippet.
  * </p>
  *
  * <p>
@@ -254,7 +258,7 @@ public class TrelloDataStore extends AbstractDataStore {
         final String cardUrl = card.get("shortUrl") != null ? (String) card.get("shortUrl") : (String) card.get("url");
         source.put("id", cardId);
         source.put("name", card.get("name"));
-        source.put("desc", card.get("desc"));
+        source.put("desc", MarkdownPlainTextRenderer.render((String) card.get("desc")));
         source.put("url", cardUrl);
         source.put("board_id", boardId);
         source.put("list", listNames.get(card.get("idList")));
@@ -271,14 +275,14 @@ public class TrelloDataStore extends AbstractDataStore {
     /**
      * @param comments The card's comments, oldest first.
      * @param cardUrl The card's own URL (its {@code shortUrl}, if the card has one).
-     * @return Each comment's text followed by a direct link to that comment
-     * ({@code <cardUrl>#comment-<id>} — the same link format Trello's own "copy link
-     * to comment" feature in the web app produces), one comment per paragraph.
+     * @return Each comment's text (Markdown rendered to plain text) followed by a direct
+     * link to that comment ({@code <cardUrl>#comment-<id>} — the same link format Trello's
+     * own "copy link to comment" feature in the web app produces), one comment per paragraph.
      */
     private String joinComments(final List<TrelloClient.Comment> comments, final String cardUrl) {
         final List<String> paragraphs = new ArrayList<>();
         for (final TrelloClient.Comment comment : comments) {
-            paragraphs.add(comment.text() + "\n(" + cardUrl + "#comment-" + comment.id() + ")");
+            paragraphs.add(MarkdownPlainTextRenderer.render(comment.text()) + "\n(" + cardUrl + "#comment-" + comment.id() + ")");
         }
         return String.join("\n\n", paragraphs);
     }
