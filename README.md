@@ -1,10 +1,9 @@
 # fess-ds-trello
 
 A [Fess](https://github.com/codelibs/fess) Data Store plugin that crawls
-Trello boards. Written because no such plugin exists anywhere — this repo's
-sibling `wiki-fess` deployment researched the codelibs `fess-ds-*` org and the
-wider GitHub code/repo index and found nothing for Trello, official or
-community (see that repo's chat history for the research trail).
+Trello boards. Written because no such plugin exists anywhere — a search of
+the codelibs `fess-ds-*` org and the wider GitHub code/repo index turned up
+nothing for Trello, official or community.
 
 This was scaffolded from
 [`fess-ds-example`](https://github.com/codelibs/fess-ds-example) (the
@@ -23,8 +22,8 @@ last-activity timestamp, label names, its containing list's name, and
 ## Requirements
 
 - Java 21+, Maven 3.x
-- Fess 15.8.0 (pinned in `pom.xml` to match the `wiki-fess` deployment's
-  `fess_image_tag`; bump both together if that changes)
+- Fess 15.8.0 (pinned via `pom.xml`'s parent version; bump this alongside
+  whatever Fess version you're installing the built jar into)
 - A Trello API key + token (see below)
 
 ## Configuration
@@ -73,9 +72,9 @@ mvn clean package
 
 ## Install
 
-This plugin is **not published to `maven.codelibs.org`**, so the `wiki-fess`
-repo's usual `fess_plugins`/`FESS_PLUGINS` auto-fetch mechanism won't pick it
-up: the official image's `run.sh` entrypoint only downloads plugins named
+This plugin is **not published to `maven.codelibs.org`**, so Fess's usual
+`fess_plugins`/`FESS_PLUGINS` auto-fetch mechanism won't pick it up: the
+official image's `run.sh` entrypoint only downloads plugins named
 `fess-ds-*`/`fess-ingest-*`/etc. from
 `https://maven.codelibs.org/release/org/codelibs/fess/<name>/<version>/`,
 verifying a `.sha1` checksum it fetches alongside the jar — there's no
@@ -92,8 +91,7 @@ container yourself instead:
   logic yourself.
 
 Then restart the `fess01` container and create the data store config as
-described above (or via the admin REST API, following the pattern documented
-in `wiki-fess`'s `docs/fess-datastore-config.md`).
+described above (or via Fess's own admin REST API).
 
 ## Status / TODO
 
@@ -102,5 +100,6 @@ in `wiki-fess`'s `docs/fess-datastore-config.md`).
   the expected shape).
 - `TrelloClient` is a minimal hand-rolled client; `fess-ds-slack` shows a
   fuller typed request/response API layer if this grows more endpoints.
-- Permission/ACL mapping (per-board visibility restriction, the way
-  `wiki-fess` restricts its Wikipedia data store) isn't wired up yet.
+- Permission/ACL mapping (per-board visibility restriction via the data
+  store config's own Permission field, the way other Fess data stores
+  restrict who sees their results) isn't wired up yet.
