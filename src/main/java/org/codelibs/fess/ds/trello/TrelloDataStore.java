@@ -15,11 +15,14 @@
  */
 package org.codelibs.fess.ds.trello;
 
+import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -28,6 +31,7 @@ import org.codelibs.fess.Constants;
 import org.codelibs.fess.app.service.FailureUrlService;
 import org.codelibs.fess.crawler.exception.CrawlingAccessException;
 import org.codelibs.fess.crawler.exception.MultipleCrawlingAccessException;
+import org.codelibs.fess.crawler.extractor.ExtractorFactory;
 import org.codelibs.fess.ds.AbstractDataStore;
 import org.codelibs.fess.ds.callback.IndexUpdateCallback;
 import org.codelibs.fess.entity.DataStoreParams;
@@ -67,6 +71,20 @@ import org.codelibs.fess.util.ComponentUtil;
  * (default {@code false}; adds one extra API call per card).</li>
  * <li>{@code include_closed_cards} (optional) - {@code true} to also crawl
  * archived cards (default {@code false}).</li>
+ * <li>{@code include_attachments} (optional) - {@code true} to also index each
+ * card's file attachments (uploaded files only — a link-only attachment has
+ * nothing to fetch) as their own separate documents, one per attachment, using
+ * the same field names as a card's own source record ({@code id}, {@code name},
+ * {@code desc} — the extracted file text — {@code url}, {@code board_id},
+ * {@code last_modified}), so an existing script map keeps working unchanged.
+ * Only attachments with a recognized text-shaped extension ({@code .txt},
+ * {@code .md}, {@code .pdf}, {@code .doc(x)}) up to
+ * {@value #MAX_ATTACHMENT_BYTES} bytes are extracted; everything else
+ * (images, video, oversized files, ...) is skipped. Text is pulled out via
+ * Fess's own {@link ExtractorFactory} (the same Tika-backed extraction the
+ * web crawler and other data stores use) — one extra API call plus one file
+ * download per qualifying attachment, on top of {@code include_comments}'
+ * per-card cost (default {@code false}).</li>
  * <li>{@code readInterval} - Interval in milliseconds to wait between cards
  * (default: 0).</li>
  * </ul>
@@ -95,6 +113,21 @@ public class TrelloDataStore extends AbstractDataStore {
 
     protected static final String INCLUDE_CLOSED_CARDS_PARAM = "include_closed_cards";
 
+    protected static final String INCLUDE_ATTACHMENTS_PARAM = "include_attachments";
+
+    /** Attachment file extensions (lowercase, no dot) worth extracting text
+     *  from — deliberately conservative: anything else (images, video,
+     *  archives, ...) is skipped rather than handed to Tika speculatively. */
+    private static final Set<String> EXTRACTABLE_ATTACHMENT_EXTENSIONS = Set.of("txt", "md", "pdf", "doc", "docx");
+
+    /** Skips extracting an attachment larger than this rather than
+     *  downloading+parsing an arbitrarily large file (Trello attachments
+     *  aren't limited to small documents — an uploaded video or disk image
+     *  would otherwise be fetched in full just to be handed to Tika). 20 MB,
+     *  generous for the {@link #EXTRACTABLE_ATTACHMENT_EXTENSIONS} this
+     *  applies to. */
+    private static final long MAX_ATTACHMENT_BYTES = 20L * 1024 * 1024;
+
     public TrelloDataStore() {
         super();
     }
@@ -113,6 +146,7 @@ public class TrelloDataStore extends AbstractDataStore {
         final String scriptType = getScriptType(paramMap);
         final boolean includeComments = paramMap.getAsString(INCLUDE_COMMENTS_PARAM, "false").equalsIgnoreCase("true");
         final boolean includeClosedCards = paramMap.getAsString(INCLUDE_CLOSED_CARDS_PARAM, "false").equalsIgnoreCase("true");
+        final boolean includeAttachments = paramMap.getAsString(INCLUDE_ATTACHMENTS_PARAM, "false").equalsIgnoreCase("true");
 
         final List<String> boardIds = getBoardIds(paramMap);
 
@@ -161,6 +195,11 @@ public class TrelloDataStore extends AbstractDataStore {
 
                         callback.store(paramMap, dataMap);
                         crawlerStatsHelper.record(statsKey, StatsAction.FINISHED);
+
+                        if (includeAttachments) {
+                            storeAttachments(dataConfig, callback, paramMap, scriptMap, defaultDataMap, scriptType, crawlerStatsHelper,
+                                    client, boardId, cardId);
+                        }
                     } catch (final CrawlingAccessException e) {
                         logger.warn("Crawling Access Exception at : {}", dataMap, e);
 
@@ -300,5 +339,141 @@ public class TrelloDataStore extends AbstractDataStore {
             }
         }
         return String.join(", ", names);
+    }
+
+    /**
+     * Indexes each of a card's qualifying attachments as its own separate Fess document —
+     * not appended into the card's own {@code content}, so an attachment stays independently
+     * findable/rankable with its own title and URL. A failure on one attachment (a bad
+     * download, an unparseable file, ...) is logged and recorded as a failure URL, same as a
+     * card-level failure, but doesn't stop the rest of the card's attachments (or the crawl)
+     * from proceeding.
+     *
+     * @param dataConfig The data store config being crawled.
+     * @param callback Where each attachment document is stored.
+     * @param paramMap The data store parameters.
+     * @param scriptMap The admin-configured field mapping — reused as-is from the card's own,
+     * since attachment source records use the same field names ({@code name}, {@code desc},
+     * {@code url}, {@code board_id}, {@code last_modified}) as a card's.
+     * @param defaultDataMap Default field values to seed each attachment's document with.
+     * @param scriptType The script language {@code scriptMap}'s values are written in.
+     * @param crawlerStatsHelper Where per-document crawl stats are recorded.
+     * @param client The Trello API client.
+     * @param boardId The id of the board the card belongs to.
+     * @param cardId The card whose attachments to index.
+     */
+    private void storeAttachments(final DataConfig dataConfig, final IndexUpdateCallback callback, final DataStoreParams paramMap,
+            final Map<String, String> scriptMap, final Map<String, Object> defaultDataMap, final String scriptType,
+            final CrawlerStatsHelper crawlerStatsHelper, final TrelloClient client, final String boardId, final String cardId) {
+        for (final TrelloClient.Attachment attachment : client.getAttachments(cardId)) {
+            if (!isExtractable(attachment)) {
+                continue;
+            }
+
+            final StatsKeyObject statsKey = new StatsKeyObject(dataConfig.getId() + "#" + cardId + "#" + attachment.id());
+            final Map<String, Object> dataMap = new HashMap<>(defaultDataMap);
+            try {
+                crawlerStatsHelper.begin(statsKey);
+
+                final String content = extractText(client, attachment);
+                final Map<String, Object> source = createAttachmentSourceRecord(boardId, attachment, content);
+
+                final Map<String, Object> resultMap = new LinkedHashMap<>(paramMap.asMap());
+                resultMap.putAll(source);
+
+                crawlerStatsHelper.record(statsKey, StatsAction.PREPARED);
+
+                for (final Map.Entry<String, String> entry : scriptMap.entrySet()) {
+                    final Object convertValue = convertValue(scriptType, entry.getValue(), resultMap);
+                    if (convertValue != null) {
+                        dataMap.put(entry.getKey(), convertValue);
+                    }
+                }
+
+                crawlerStatsHelper.record(statsKey, StatsAction.EVALUATED);
+
+                if (dataMap.get("url") instanceof final String statsUrl) {
+                    statsKey.setUrl(statsUrl);
+                }
+
+                callback.store(paramMap, dataMap);
+                crawlerStatsHelper.record(statsKey, StatsAction.FINISHED);
+            } catch (final Exception e) {
+                logger.warn("Failed to index Trello attachment {} on card {}", attachment.name(), cardId, e);
+                final FailureUrlService failureUrlService = ComponentUtil.getComponent(FailureUrlService.class);
+                failureUrlService.store(dataConfig, e.getClass().getCanonicalName(), attachment.url(), e);
+                crawlerStatsHelper.record(statsKey, StatsAction.EXCEPTION);
+            } finally {
+                crawlerStatsHelper.done(statsKey);
+            }
+        }
+    }
+
+    /**
+     * @param attachment An attachment on a card.
+     * @return {@code true} for an uploaded file (not a link-only attachment — nothing of ours
+     * to download for those), no larger than {@link #MAX_ATTACHMENT_BYTES}, whose filename
+     * extension is in {@link #EXTRACTABLE_ATTACHMENT_EXTENSIONS}.
+     */
+    protected boolean isExtractable(final TrelloClient.Attachment attachment) {
+        if (!attachment.isUpload()) {
+            return false;
+        }
+        if (attachment.bytes() >= 0 && attachment.bytes() > MAX_ATTACHMENT_BYTES) {
+            logger.info("Skipping oversized Trello attachment {} ({} bytes)", attachment.name(), attachment.bytes());
+            return false;
+        }
+        final String name = attachment.name();
+        final int dot = name.lastIndexOf('.');
+        if (dot < 0 || dot == name.length() - 1) {
+            return false;
+        }
+        return EXTRACTABLE_ATTACHMENT_EXTENSIONS.contains(name.substring(dot + 1).toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Downloads and extracts an attachment's text, via Fess's own {@link ExtractorFactory}
+     * (the same Tika-backed extraction the web crawler and other data stores use) rather than
+     * bundling a separate extraction library.
+     *
+     * @param client The Trello API client.
+     * @param attachment The attachment to download and extract.
+     * @return The extracted plain text.
+     */
+    private String extractText(final TrelloClient client, final TrelloClient.Attachment attachment) {
+        final byte[] bytes = client.downloadAttachment(attachment.url());
+        final ExtractorFactory extractorFactory = ComponentUtil.getExtractorFactory();
+        try (final ByteArrayInputStream in = new ByteArrayInputStream(bytes)) {
+            return extractorFactory.builder(in, new HashMap<>()).filename(attachment.name()).extract().getContent();
+        } catch (final java.io.IOException e) {
+            throw new TrelloDataStoreException("Failed to extract text from Trello attachment: " + attachment.name(), e);
+        }
+    }
+
+    /**
+     * Builds the source record for one Trello attachment, available to the admin-configured
+     * scriptMap under the same field names {@link #createSourceRecord} uses for a card, so an
+     * existing script map indexes attachments without needing separate rules for them.
+     *
+     * @param boardId The id of the board the attachment's card belongs to.
+     * @param attachment The attachment being indexed.
+     * @param content The attachment's extracted text.
+     * @return The source record: {@code id}, {@code name}, {@code desc} (the extracted text),
+     * {@code url}, {@code board_id}, {@code last_modified}, and an empty {@code comments} (so
+     * a script map referencing it under {@code include_comments=true} doesn't fail on a field
+     * attachments don't otherwise have).
+     */
+    protected Map<String, Object> createAttachmentSourceRecord(final String boardId, final TrelloClient.Attachment attachment,
+            final String content) {
+        final Map<String, Object> source = new HashMap<>();
+        source.put("id", attachment.id());
+        source.put("name", attachment.name());
+        source.put("desc", content);
+        source.put("url", attachment.url());
+        source.put("board_id", boardId);
+        source.put("last_modified", attachment.date());
+        source.put("comments", "");
+        source.put("labels", "");
+        return source;
     }
 }

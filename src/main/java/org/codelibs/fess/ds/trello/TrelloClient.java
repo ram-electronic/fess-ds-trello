@@ -31,7 +31,7 @@ import org.codelibs.curl.CurlResponse;
 /**
  * Minimal client for the parts of the Trello REST API this data store needs:
  * listing a board's lists (for id-&gt;name lookup), paging through a board's
- * cards, and optionally fetching a card's comments.
+ * cards, and optionally fetching a card's comments and attachments.
  *
  * <p>
  * Trello authenticates via {@code key}/{@code token} query parameters (see
@@ -153,6 +153,81 @@ public class TrelloClient implements Closeable {
      * @param text The comment's text.
      */
     public record Comment(String id, String text) {
+    }
+
+    /**
+     * @param cardId The Trello card id.
+     * @return Every attachment on the card, in the order Trello returns them.
+     */
+    @SuppressWarnings("unchecked")
+    public List<Attachment> getAttachments(final String cardId) {
+        final List<Map<String, Object>> attachments = (List<Map<String, Object>>) get(API_BASE + "/cards/" + cardId + "/attachments",
+                Map.of("fields", "name,url,mimeType,bytes,isUpload,date"));
+        final List<Attachment> result = new ArrayList<>();
+        for (final Map<String, Object> attachment : attachments) {
+            if (attachment.get("id") instanceof final String id && attachment.get("name") instanceof final String name
+                    && attachment.get("url") instanceof final String url) {
+                final String mimeType = attachment.get("mimeType") instanceof final String mt ? mt : null;
+                final long bytes = attachment.get("bytes") instanceof final Number n ? n.longValue() : -1L;
+                final boolean isUpload = Boolean.TRUE.equals(attachment.get("isUpload"));
+                final String date = attachment.get("date") instanceof final String d ? d : null;
+                result.add(new Attachment(id, name, url, mimeType, bytes, isUpload, date));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * One attachment on a card.
+     *
+     * @param id The attachment's Trello id.
+     * @param name The attachment's filename (as uploaded, or the link text for a non-upload).
+     * @param url Where to download it from ({@link #downloadAttachment(String)} — for an
+     * external-link attachment ({@code isUpload} false), this is just the link itself, not
+     * necessarily a file at all.
+     * @param mimeType Trello's own guess at the content type, or {@code null} if it didn't say.
+     * @param bytes File size in bytes, or {@code -1} if Trello didn't report one.
+     * @param isUpload {@code true} for a file actually stored on Trello's own storage;
+     * {@code false} for an attachment that's just a link to an external URL, with nothing of
+     * ours to download or extract.
+     * @param date When the attachment was added, or {@code null} if Trello didn't report one.
+     */
+    public record Attachment(String id, String name, String url, String mimeType, long bytes, boolean isUpload, String date) {
+    }
+
+    /**
+     * Downloads an attachment's raw file bytes.
+     *
+     * @param url An attachment's own {@code url} (see {@link Attachment#url()}).
+     * @return The raw file content.
+     */
+    public byte[] downloadAttachment(final String url) {
+        Exception lastException = null;
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            final org.codelibs.curl.CurlRequest request =
+                    Curl.get(url).param("key", apiKey).param("token", apiToken).timeout(CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS);
+            try (final CurlResponse response = request.execute()) {
+                final int status = response.getHttpStatusCode();
+                if (status == 200) {
+                    return response.getContentAsStream().readAllBytes();
+                }
+                if (isRetryable(status) && attempt < MAX_RETRIES) {
+                    sleepBeforeRetry(attempt, retryAfterMillis(response));
+                    continue;
+                }
+                throw new TrelloDataStoreException("Trello attachment download returned " + status + " for " + url);
+            } catch (final TrelloDataStoreException e) {
+                throw e;
+            } catch (final Exception e) {
+                lastException = e;
+                if (attempt < MAX_RETRIES) {
+                    sleepBeforeRetry(attempt, -1);
+                    continue;
+                }
+                throw new TrelloDataStoreException("Failed to download Trello attachment: " + url, e);
+            }
+        }
+        throw new TrelloDataStoreException("Failed to download Trello attachment after " + MAX_RETRIES + " retries: " + url, lastException);
     }
 
     /**
