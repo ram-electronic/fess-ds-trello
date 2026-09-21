@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: this job only checks out code and runs a build, it never
+# needs to write anything back to the repo — overrides whatever broader
+# default the org/repo's GITHUB_TOKEN permissions setting might otherwise
+# grant.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
