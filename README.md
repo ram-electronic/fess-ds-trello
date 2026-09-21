@@ -38,7 +38,7 @@ Set these in the data store config's **Parameter** field
 | Parameter | Required | Description |
 |---|---|---|
 | `key` | yes | Trello API key. Create a Power-Up at the [Trello Power-Up admin](https://trello.com/power-ups/admin) to get one — Trello requires this even for personal/read-only use. |
-| `token` | yes | API token authorized for that key (generate via the manual token flow linked from the Power-Up's API key page). |
+| `token` | yes | API token authorized for that key (generate via the manual token flow linked from the Power-Up's API key page — **not** the "Secret" shown on that same page, which is for OAuth 1.0a; this plugin uses Trello's simpler key+token auth, a different mechanism entirely). |
 | `board_id` | yes | Comma-separated Trello board ids or shortLinks (the code at the end of a board URL, e.g. `https://trello.com/b/aBcD1234/my-board` → `aBcD1234`). |
 | `include_comments` | no | `true` to fetch and join each card's comments into a `comments` source field (default `false`; costs one extra API call per card). |
 | `include_closed_cards` | no | `true` to also crawl archived/closed cards (default `false`). |
@@ -52,9 +52,19 @@ The plugin doesn't hard-code index fields — map source fields to them in the
 ```
 title=name
 content=desc + (comments != null && comments != "" ? "\n\n" + comments : "")
+digest=desc + (comments != null && comments != "" ? "\n\n" + comments : "")
 url=url
 last_modified=last_modified
 ```
+
+**Each line is evaluated independently against the raw source record below —
+never against another line's own output.** `digest=content` looks tempting
+(reuse the `content` line you just wrote), but Fess doesn't work that way:
+every line runs its own, separate expression against the same underlying
+record, so a line can't see what an earlier line produced. If you want
+`digest` to hold the same thing as `content`, repeat the whole expression
+(as above) rather than referencing `content` as if it were a variable — that
+resolves to nothing and silently leaves the field empty.
 
 Source fields available: `id`, `name`, `desc`, `url`, `board_id`, `list`,
 `due`, `last_modified`, `labels`, and `comments` (only present when
