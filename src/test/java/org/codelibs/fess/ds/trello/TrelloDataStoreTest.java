@@ -115,18 +115,20 @@ public class TrelloDataStoreTest {
     public void createSourceRecord_joinsComments_whenIncludeCommentsTrue() {
         final Map<String, Object> card = new HashMap<>();
         card.put("id", "card1");
+        card.put("shortUrl", "https://trello.com/c/card1");
 
         final TrelloClient client = new TrelloClient("key", "token") {
             @Override
-            public List<String> getComments(final String cardId) {
+            public List<Comment> getComments(final String cardId) {
                 assertEquals("card1", cardId);
-                return Arrays.asList("first comment", "second comment");
+                return Arrays.asList(new Comment("commentA", "first comment"), new Comment("commentB", "second comment"));
             }
         };
 
         final Map<String, Object> source = dataStore.createSourceRecord(client, "board1", new HashMap<>(), card, true);
 
-        assertEquals("first comment\nsecond comment", source.get("comments"));
+        assertEquals("first comment\n(https://trello.com/c/card1#comment-commentA)"
+                + "\n\nsecond comment\n(https://trello.com/c/card1#comment-commentB)", source.get("comments"));
     }
 
     @Test
