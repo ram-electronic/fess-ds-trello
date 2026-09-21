@@ -40,7 +40,7 @@ Set these in the data store config's **Parameter** field
 | `key` | yes | Trello API key. Create a Power-Up at the [Trello Power-Up admin](https://trello.com/power-ups/admin) to get one — Trello requires this even for personal/read-only use. |
 | `token` | yes | API token authorized for that key (generate via the manual token flow linked from the Power-Up's API key page — **not** the "Secret" shown on that same page, which is for OAuth 1.0a; this plugin uses Trello's simpler key+token auth, a different mechanism entirely). |
 | `board_id` | yes | Comma-separated Trello board ids or shortLinks (the code at the end of a board URL, e.g. `https://trello.com/b/aBcD1234/my-board` → `aBcD1234`). |
-| `include_comments` | no | `true` to fetch and join each card's comments into a `comments` source field (default `false`; costs one extra API call per card). |
+| `include_comments` | no | `true` to fetch each card's comments into a `comments` source field, each followed by a direct link to that comment (`<card-url>#comment-<id>`, the same format Trello's own "copy link to comment" feature produces) (default `false`; costs one extra API call per card). |
 | `include_closed_cards` | no | `true` to also crawl archived/closed cards (default `false`). |
 | `readInterval` | no | Milliseconds to sleep between cards (default `0`). |
 
