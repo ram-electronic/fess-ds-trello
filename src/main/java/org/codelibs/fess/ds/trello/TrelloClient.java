@@ -127,20 +127,32 @@ public class TrelloClient implements Closeable {
 
     /**
      * @param cardId The Trello card id.
-     * @return The text of each comment on the card, oldest first.
+     * @return Each comment on the card, oldest first.
      */
     @SuppressWarnings("unchecked")
-    public List<String> getComments(final String cardId) {
+    public List<Comment> getComments(final String cardId) {
         final List<Map<String, Object>> actions = (List<Map<String, Object>>) get(API_BASE + "/cards/" + cardId + "/actions",
                 Map.of("filter", "commentCard", "fields", "data"));
-        final List<String> comments = new ArrayList<>();
+        final List<Comment> comments = new ArrayList<>();
         for (int i = actions.size() - 1; i >= 0; i--) {
-            final Map<String, Object> data = (Map<String, Object>) actions.get(i).get("data");
-            if (data != null && data.get("text") instanceof final String text) {
-                comments.add(text);
+            final Map<String, Object> action = actions.get(i);
+            final Map<String, Object> data = (Map<String, Object>) action.get("data");
+            if (data != null && data.get("text") instanceof final String text && action.get("id") instanceof final String id) {
+                comments.add(new Comment(id, text));
             }
         }
         return comments;
+    }
+
+    /**
+     * One comment on a card.
+     *
+     * @param id The comment's Trello action id — the same id used in a
+     * direct comment link, {@code <card-url>#comment-<id>} (confirmed by
+     * copying a comment's own share link from the Trello web app).
+     * @param text The comment's text.
+     */
+    public record Comment(String id, String text) {
     }
 
     /**

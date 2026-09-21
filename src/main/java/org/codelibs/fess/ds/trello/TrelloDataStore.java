@@ -57,8 +57,10 @@ import org.codelibs.fess.util.ComponentUtil;
  * <li>{@code board_id} (required) - Comma-separated list of Trello board ids
  * or shortLinks to crawl.</li>
  * <li>{@code include_comments} (optional) - {@code true} to append each
- * card's comments to the source record's {@code comments} field (default
- * {@code false}; adds one extra API call per card).</li>
+ * card's comments to the source record's {@code comments} field, each
+ * followed by a direct link to that comment ({@code <card-url>#comment-<id>},
+ * the same format Trello's own "copy link to comment" feature produces)
+ * (default {@code false}; adds one extra API call per card).</li>
  * <li>{@code include_closed_cards} (optional) - {@code true} to also crawl
  * archived cards (default {@code false}).</li>
  * <li>{@code readInterval} - Interval in milliseconds to wait between cards
@@ -249,10 +251,11 @@ public class TrelloDataStore extends AbstractDataStore {
             final Map<String, Object> card, final boolean includeComments) {
         final Map<String, Object> source = new HashMap<>();
         final String cardId = (String) card.get("id");
+        final String cardUrl = card.get("shortUrl") != null ? (String) card.get("shortUrl") : (String) card.get("url");
         source.put("id", cardId);
         source.put("name", card.get("name"));
         source.put("desc", card.get("desc"));
-        source.put("url", card.get("shortUrl") != null ? card.get("shortUrl") : card.get("url"));
+        source.put("url", cardUrl);
         source.put("board_id", boardId);
         source.put("list", listNames.get(card.get("idList")));
         source.put("due", card.get("due"));
@@ -260,9 +263,24 @@ public class TrelloDataStore extends AbstractDataStore {
         source.put("labels", joinLabelNames(card.get("labels")));
 
         if (includeComments) {
-            source.put("comments", String.join("\n", client.getComments(cardId)));
+            source.put("comments", joinComments(client.getComments(cardId), cardUrl));
         }
         return source;
+    }
+
+    /**
+     * @param comments The card's comments, oldest first.
+     * @param cardUrl The card's own URL (its {@code shortUrl}, if the card has one).
+     * @return Each comment's text followed by a direct link to that comment
+     * ({@code <cardUrl>#comment-<id>} — the same link format Trello's own "copy link
+     * to comment" feature in the web app produces), one comment per paragraph.
+     */
+    private String joinComments(final List<TrelloClient.Comment> comments, final String cardUrl) {
+        final List<String> paragraphs = new ArrayList<>();
+        for (final TrelloClient.Comment comment : comments) {
+            paragraphs.add(comment.text() + "\n(" + cardUrl + "#comment-" + comment.id() + ")");
+        }
+        return String.join("\n\n", paragraphs);
     }
 
     @SuppressWarnings("unchecked")
