@@ -116,11 +116,14 @@ looks like a plain web page by default. `design/` ships an optional
 Trello-aware template:
 
 - [`design/searchResults.jsp`](design/searchResults.jsp) — Fess's own
-  **15.8.0** stock file, unchanged except for one line: a Trello branch is
-  spliced in via `<%@ include file="/WEB-INF/view/trelloResult.jspf" %>`
-  when `doc.site == 'trello.com' && !empty doc.trello_type`. Diff this
-  against your own `WEB-INF/view/searchResults.jsp` before using it if
-  you're on a different Fess version.
+  **15.8.0** stock file, with its per-hit `<li>` block wrapped in a
+  `<c:choose>`: `<c:otherwise>` keeps that block's original markup
+  verbatim, and a new `<c:when test="${doc.site == 'trello.com' &&
+  !empty doc.trello_type}">` splices in the Trello branch via
+  `<%@ include file="/WEB-INF/view/trelloResult.jspf" %>`. Everything
+  outside that one `<li>` block is untouched. Diff this against your own
+  `WEB-INF/view/searchResults.jsp` before using it if you're on a
+  different Fess version.
 - [`design/trelloResult.jspf`](design/trelloResult.jspf) — the actual
   Trello markup (icon, a Card/Comment/Attachment badge, list, label chips,
   due date, and a link back to an attachment's parent card). Isolated here
