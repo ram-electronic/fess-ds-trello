@@ -115,7 +115,7 @@ container yourself instead, either:
   workflow, from a specific commit) — verify with the [`gh`
   CLI](https://cli.github.com/):
   ```
-  gh attestation verify fess-ds-trello-1.2.0.jar -R ram-electronic/fess-ds-trello
+  gh attestation verify fess-ds-trello-1.2.1.jar -R ram-electronic/fess-ds-trello
   ```
   or
 - **Build it yourself** with `mvn clean package` (see [Build](#build)
