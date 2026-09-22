@@ -234,14 +234,24 @@ public class TrelloClient implements Closeable {
     /**
      * Downloads an attachment's raw file bytes.
      *
+     * <p>
+     * Authenticates via an {@code Authorization: OAuth ...} header, not the {@code key}/
+     * {@code token} query parameters {@link #get} uses for every other endpoint — confirmed via
+     * real-world reports (Atlassian Community: "trello REST API: getting 401 (unauthorized)
+     * when downloading attachment") that Trello's own docs once recommended the query-parameter
+     * form for attachment download URLs specifically, then later added a note that it no longer
+     * works; the header form is the one that still does.
+     * </p>
+     *
      * @param url An attachment's own {@code url} (see {@link Attachment#url()}).
      * @return The raw file content.
      */
     public byte[] downloadAttachment(final String url) {
         Exception lastException = null;
         for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            final org.codelibs.curl.CurlRequest request =
-                    Curl.get(url).param("key", apiKey).param("token", apiToken).timeout(CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS);
+            final org.codelibs.curl.CurlRequest request = Curl.get(url)
+                    .header("Authorization", "OAuth oauth_consumer_key=\"" + apiKey + "\", oauth_token=\"" + apiToken + "\"")
+                    .timeout(CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS);
             try (final CurlResponse response = request.execute()) {
                 final int status = response.getHttpStatusCode();
                 if (status == 200) {

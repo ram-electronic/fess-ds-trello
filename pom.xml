@@ -14,7 +14,7 @@
 	     does for the official codelibs fess-ds-* plugins. Bump this on its
 	     own release cadence; bump the parent version separately, only when
 	     actually rebuilding against a newer Fess. -->
-	<version>1.2.0</version>
+	<version>1.2.1</version>
 	<scm>
 		<connection>scm:git:git@github.com:ram-electronic/fess-ds-trello.git</connection>
 		<developerConnection>scm:git:git@github.com:ram-electronic/fess-ds-trello.git</developerConnection>
