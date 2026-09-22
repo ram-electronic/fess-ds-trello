@@ -22,7 +22,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -164,15 +163,25 @@ public class TrelloDataStore extends AbstractDataStore {
     private static final int MAX_INDEXED_DOCS_TO_CHECK = 10_000;
 
     /** Attachment file extensions (lowercase, no dot) worth extracting text
-     *  from — deliberately conservative: anything else (images, video,
-     *  archives, ...) is skipped rather than handed to Tika speculatively. */
-    private static final Set<String> EXTRACTABLE_ATTACHMENT_EXTENSIONS = Set.of("txt", "md", "pdf", "doc", "docx");
+     *  from, each mapped to the MIME type its document is indexed with —
+     *  deliberately conservative: anything else (images, video, archives, ...)
+     *  is skipped rather than handed to Tika speculatively. The MIME type comes
+     *  from the extension rather than Trello's own {@code mimeType}, which can be
+     *  blank or a generic {@code application/octet-stream} for an upload;
+     *  it's what Fess's {@code index.filetype} maps to the {@code filetype}
+     *  field (so e.g. {@code filetype:pdf} matches a PDF attachment). */
+    private static final Map<String, String> EXTRACTABLE_ATTACHMENT_MIMETYPES = Map.of( //
+            "txt", "text/plain", //
+            "md", "text/markdown", //
+            "pdf", "application/pdf", //
+            "doc", "application/msword", //
+            "docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
 
     /** Skips extracting an attachment larger than this rather than
      *  downloading+parsing an arbitrarily large file (Trello attachments
      *  aren't limited to small documents — an uploaded video or disk image
      *  would otherwise be fetched in full just to be handed to Tika). 20 MB,
-     *  generous for the {@link #EXTRACTABLE_ATTACHMENT_EXTENSIONS} this
+     *  generous for the {@link #EXTRACTABLE_ATTACHMENT_MIMETYPES} this
      *  applies to. */
     private static final long MAX_ATTACHMENT_BYTES = 20L * 1024 * 1024;
 
@@ -501,6 +510,13 @@ public class TrelloDataStore extends AbstractDataStore {
                 final String content = extractText(client, attachment);
                 final Map<String, Object> source = createAttachmentSourceRecord(boardId, attachment, cardUrl, content);
 
+                // Replaces the "application/datastore" (filetype "others") every data store
+                // document gets by default, before the script map runs so it can still override.
+                final String mimeType = getAttachmentMimeType(attachment);
+                final FessConfig fessConfig = ComponentUtil.getFessConfig();
+                dataMap.put(fessConfig.getIndexFieldMimetype(), mimeType);
+                dataMap.put(fessConfig.getIndexFieldFiletype(), ComponentUtil.getFileTypeHelper().get(mimeType));
+
                 final Map<String, Object> resultMap = new LinkedHashMap<>(paramMap.asMap());
                 resultMap.putAll(source);
 
@@ -646,7 +662,7 @@ public class TrelloDataStore extends AbstractDataStore {
      * @param attachment An attachment on a card.
      * @return {@code true} for an uploaded file (not a link-only attachment — nothing of ours
      * to download for those), no larger than {@link #MAX_ATTACHMENT_BYTES}, whose filename
-     * extension is in {@link #EXTRACTABLE_ATTACHMENT_EXTENSIONS}.
+     * extension is in {@link #EXTRACTABLE_ATTACHMENT_MIMETYPES}.
      */
     protected boolean isExtractable(final TrelloClient.Attachment attachment) {
         if (!attachment.isUpload()) {
@@ -656,12 +672,22 @@ public class TrelloDataStore extends AbstractDataStore {
             logger.info("Skipping oversized Trello attachment {} ({} bytes)", attachment.name(), attachment.bytes());
             return false;
         }
+        return getAttachmentMimeType(attachment) != null;
+    }
+
+    /**
+     * @param attachment An attachment on a card.
+     * @return The MIME type its document is indexed with, from its filename extension (see
+     * {@link #EXTRACTABLE_ATTACHMENT_MIMETYPES}), or {@code null} for an extension that isn't
+     * extracted at all.
+     */
+    protected String getAttachmentMimeType(final TrelloClient.Attachment attachment) {
         final String name = attachment.name();
         final int dot = name.lastIndexOf('.');
         if (dot < 0 || dot == name.length() - 1) {
-            return false;
+            return null;
         }
-        return EXTRACTABLE_ATTACHMENT_EXTENSIONS.contains(name.substring(dot + 1).toLowerCase(Locale.ROOT));
+        return EXTRACTABLE_ATTACHMENT_MIMETYPES.get(name.substring(dot + 1).toLowerCase(Locale.ROOT));
     }
 
     /**

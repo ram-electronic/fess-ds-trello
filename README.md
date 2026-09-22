@@ -90,6 +90,14 @@ names as a card (`id`, `name`, `desc`, `url`, `card_url`, `board_id`,
 `last_modified`, `comments`) so the same script config indexes both without
 changes — `desc` holds the extracted attachment text instead of the card
 description, and `list`/`due`/`labels` aren't set (map to nothing/empty).
+Unlike cards and comments (which keep Fess's data store default,
+`mimetype=application/datastore` / `filetype=others`), an attachment
+document's `mimetype` is set from its file extension (e.g. `application/pdf`)
+and `filetype` from Fess's `index.filetype` mapping of that (e.g. `pdf`,
+`word`, `txt`), so `filetype:pdf` searches and the file type facet work for
+attachments with no script changes (a script mapping either field still
+overrides it). `.md` files get `text/markdown`, which Fess's default
+`index.filetype` doesn't list, so they stay `filetype=others`.
 `url` is the attachment's own direct download link; `card_url` is the link
 to the Trello card it's attached to (for a card document, `card_url` is
 just the card's own `url`). Map both to separate index fields if you want
