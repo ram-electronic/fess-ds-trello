@@ -165,7 +165,7 @@ trello_card_url=card_url
 **drop `trello_card_url=card_url`**, or Groovy throws
 `MissingPropertyException` on a field that doesn't exist yet (same gotcha
 as `comments` above). Likewise, comment and attachment documents only carry
-`list` and `due` (as empty strings) from the release after `v1.4.0` — on
+`list` and `due` (as empty strings) from `v1.5.0` onwards — on
 `v1.4.0` or older, every `trello_type`/`trello_list`/`trello_due` line throws
 for those documents, leaving `trello_type` unset so they render through the
 generic branch. `trello_type` relies on `list` being empty for anything but a
@@ -250,7 +250,7 @@ container yourself instead, either:
   workflow, from a specific commit) — verify with the [`gh`
   CLI](https://cli.github.com/):
   ```
-  gh attestation verify fess-ds-trello-1.4.0.jar -R ram-electronic/fess-ds-trello
+  gh attestation verify fess-ds-trello-1.5.0.jar -R ram-electronic/fess-ds-trello
   ```
   or
 - **Build it yourself** with `mvn clean package` (see [Build](#build)
