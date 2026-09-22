@@ -165,7 +165,8 @@ public class TrelloClient implements Closeable {
             final Object data = action.get("data");
             if (data instanceof final Map<?, ?> dataMap && dataMap.get("text") instanceof final String text
                     && action.get("id") instanceof final String id) {
-                comments.add(new Comment(id, text));
+                final String date = action.get("date") instanceof final String d ? d : null;
+                comments.add(new Comment(id, text, date));
             }
         }
         return comments;
@@ -178,8 +179,9 @@ public class TrelloClient implements Closeable {
      * direct comment link, {@code <card-url>#comment-<id>} (confirmed by
      * copying a comment's own share link from the Trello web app).
      * @param text The comment's text.
+     * @param date When the comment was posted, or {@code null} if Trello didn't report one.
      */
-    public record Comment(String id, String text) {
+    public record Comment(String id, String text, String date) {
     }
 
     /**

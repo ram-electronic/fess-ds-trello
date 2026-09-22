@@ -67,12 +67,18 @@ import org.opensearch.index.query.QueryBuilders;
  * <li>{@code token} (required) - Trello API token authorized for that key.</li>
  * <li>{@code board_id} (required) - Comma-separated list of Trello board ids
  * or shortLinks to crawl.</li>
- * <li>{@code include_comments} (optional) - {@code true} to append each
+ * <li>{@code include_comments} (optional) - {@code true} to both (a) append each
  * card's comments to the source record's {@code comments} field, each
  * followed by a direct link to that comment ({@code <card-url>#comment-<id>},
- * the same format Trello's own "copy link to comment" feature produces)
- * (default {@code false}; embedded via Trello's nested resources in the
- * same per-board card-listing call — no extra API call per card).</li>
+ * the same format Trello's own "copy link to comment" feature produces), so
+ * the card's own document stays a single consolidated body a topic spread
+ * across several comments can rank well on as a whole, and (b) index each
+ * comment as its own separate document (see {@link #storeComments}) — its
+ * {@code desc} the card's description plus that one comment, its {@code url}
+ * a direct link to that specific comment — so a single comment can also be
+ * found and linked to on its own (default {@code false}; embedded via
+ * Trello's nested resources in the same per-board card-listing call — no
+ * extra API call per card).</li>
  * <li>{@code include_closed_cards} (optional) - {@code true} to also crawl
  * archived cards (default {@code false}).</li>
  * <li>{@code include_attachments} (optional) - {@code true} to also index each
@@ -235,6 +241,11 @@ public class TrelloDataStore extends AbstractDataStore {
                             storeAttachments(dataConfig, callback, paramMap, scriptMap, defaultDataMap, scriptType, crawlerStatsHelper,
                                     client, boardId, cardId, TrelloClient.parseAttachments(card));
                         }
+
+                        if (includeComments) {
+                            storeComments(dataConfig, callback, paramMap, scriptMap, defaultDataMap, scriptType, crawlerStatsHelper,
+                                    boardId, cardId, card, TrelloClient.parseComments(card));
+                        }
                     } catch (final CrawlingAccessException e) {
                         logger.warn("Crawling Access Exception at : {}", dataMap, e);
 
@@ -321,7 +332,7 @@ public class TrelloDataStore extends AbstractDataStore {
      * nothing about the card has changed since it was last successfully indexed.
      */
     protected boolean isAlreadyIndexedUnmodified(final Map<String, Object> card, final Map<String, String> indexedLastModified) {
-        final String cardUrl = card.get("shortUrl") != null ? (String) card.get("shortUrl") : (String) card.get("url");
+        final String cardUrl = getCardUrl(card);
         final Object dateLastActivity = card.get("dateLastActivity");
         return cardUrl != null && dateLastActivity != null && dateLastActivity.equals(indexedLastModified.get(cardUrl));
     }
@@ -375,7 +386,7 @@ public class TrelloDataStore extends AbstractDataStore {
             final Map<String, Object> card, final boolean includeComments) {
         final Map<String, Object> source = new HashMap<>();
         final String cardId = (String) card.get("id");
-        final String cardUrl = card.get("shortUrl") != null ? (String) card.get("shortUrl") : (String) card.get("url");
+        final String cardUrl = getCardUrl(card);
         source.put("id", cardId);
         source.put("name", card.get("name"));
         source.put("desc", MarkdownPlainTextRenderer.render((String) card.get("desc")));
@@ -405,6 +416,15 @@ public class TrelloDataStore extends AbstractDataStore {
             paragraphs.add(MarkdownPlainTextRenderer.render(comment.text()) + "\n(" + cardUrl + "#comment-" + comment.id() + ")");
         }
         return String.join("\n\n", paragraphs);
+    }
+
+    /**
+     * @param card The raw card fields, as returned by the Trello API.
+     * @return The card's {@code shortUrl}, falling back to its full {@code url} if it has no
+     * short one.
+     */
+    private String getCardUrl(final Map<String, Object> card) {
+        return card.get("shortUrl") != null ? (String) card.get("shortUrl") : (String) card.get("url");
     }
 
     @SuppressWarnings("unchecked")
@@ -491,6 +511,111 @@ public class TrelloDataStore extends AbstractDataStore {
                 crawlerStatsHelper.done(statsKey);
             }
         }
+    }
+
+    /**
+     * Indexes each of a card's comments as its own separate Fess document, in addition to
+     * (not instead of) folding all of them into the card's own {@code comments}/{@code content}
+     * field via {@link #createSourceRecord} — the two serve different goals: the card's own
+     * consolidated document lets a topic discussed across several comments (plus the card's
+     * description) accumulate enough combined term frequency to rank the card well as a whole;
+     * a separate per-comment document lets a single specific comment be found and linked to
+     * directly, which the card's own document can't do since its {@code url} is always the
+     * plain card link with no comment anchor. Each comment document's {@code desc} is the card's
+     * own description plus that one comment (not the comment alone), so a short, low-context
+     * comment (e.g. "sounds good") still carries the card's own topic keywords rather than
+     * matching on almost nothing. Its {@code name} is deliberately the card's own title, not a
+     * synthesized "<title> — comment" label, so it reads the same as the card in search results.
+     *
+     * @param dataConfig The data store config being crawled.
+     * @param callback Where each comment document is stored.
+     * @param paramMap The data store parameters.
+     * @param scriptMap The admin-configured field mapping — reused as-is from the card's own,
+     * since comment source records use the same field names as a card's.
+     * @param defaultDataMap Default field values to seed each comment's document with.
+     * @param scriptType The script language {@code scriptMap}'s values are written in.
+     * @param crawlerStatsHelper Where per-document crawl stats are recorded.
+     * @param boardId The id of the board the card belongs to.
+     * @param cardId The card whose comments to index.
+     * @param card The raw card fields, as returned by the Trello API.
+     * @param comments The card's comments, as embedded by {@link TrelloClient#getCards} (see
+     * {@link TrelloClient#parseComments}) — no separate API call to list them.
+     */
+    private void storeComments(final DataConfig dataConfig, final IndexUpdateCallback callback, final DataStoreParams paramMap,
+            final Map<String, String> scriptMap, final Map<String, Object> defaultDataMap, final String scriptType,
+            final CrawlerStatsHelper crawlerStatsHelper, final String boardId, final String cardId, final Map<String, Object> card,
+            final List<TrelloClient.Comment> comments) {
+        for (final TrelloClient.Comment comment : comments) {
+            final StatsKeyObject statsKey = new StatsKeyObject(dataConfig.getId() + "#" + cardId + "#comment#" + comment.id());
+            final Map<String, Object> dataMap = new HashMap<>(defaultDataMap);
+            try {
+                crawlerStatsHelper.begin(statsKey);
+
+                final Map<String, Object> source = createCommentSourceRecord(boardId, card, comment);
+
+                final Map<String, Object> resultMap = new LinkedHashMap<>(paramMap.asMap());
+                resultMap.putAll(source);
+
+                crawlerStatsHelper.record(statsKey, StatsAction.PREPARED);
+
+                for (final Map.Entry<String, String> entry : scriptMap.entrySet()) {
+                    final Object convertValue = convertValue(scriptType, entry.getValue(), resultMap);
+                    if (convertValue != null) {
+                        dataMap.put(entry.getKey(), convertValue);
+                    }
+                }
+
+                crawlerStatsHelper.record(statsKey, StatsAction.EVALUATED);
+
+                if (dataMap.get("url") instanceof final String statsUrl) {
+                    statsKey.setUrl(statsUrl);
+                }
+
+                callback.store(paramMap, dataMap);
+                crawlerStatsHelper.record(statsKey, StatsAction.FINISHED);
+            } catch (final Exception e) {
+                final String commentUrl = getCardUrl(card) + "#comment-" + comment.id();
+                logger.warn("Failed to index Trello comment {} on card {}", comment.id(), cardId, e);
+                final FailureUrlService failureUrlService = ComponentUtil.getComponent(FailureUrlService.class);
+                failureUrlService.store(dataConfig, e.getClass().getCanonicalName(), commentUrl, e);
+                crawlerStatsHelper.record(statsKey, StatsAction.EXCEPTION);
+            } finally {
+                crawlerStatsHelper.done(statsKey);
+            }
+        }
+    }
+
+    /**
+     * Builds the source record for one Trello comment, available to the admin-configured
+     * scriptMap under the same field names {@link #createSourceRecord} uses for a card.
+     *
+     * @param boardId The id of the board the comment's card belongs to.
+     * @param card The raw card fields the comment belongs to, as returned by the Trello API.
+     * @param comment The comment being indexed.
+     * @return The source record: {@code id} (the comment's own action id), {@code name} (the
+     * card's own title, unchanged), {@code desc} (the card's description followed by this one
+     * comment's text, both Markdown-rendered), {@code url} (a direct link to this comment,
+     * {@code <card-url>#comment-<id>}), {@code board_id}, {@code last_modified} (the comment's
+     * own post date, falling back to the card's {@code dateLastActivity} if Trello didn't
+     * report one), {@code labels} (the card's own), and an empty {@code comments} (so a script
+     * map referencing it under {@code include_comments=true} doesn't fail on a field a comment
+     * document doesn't otherwise have).
+     */
+    protected Map<String, Object> createCommentSourceRecord(final String boardId, final Map<String, Object> card,
+            final TrelloClient.Comment comment) {
+        final String cardDesc = MarkdownPlainTextRenderer.render((String) card.get("desc"));
+        final String commentText = MarkdownPlainTextRenderer.render(comment.text());
+
+        final Map<String, Object> source = new HashMap<>();
+        source.put("id", comment.id());
+        source.put("name", card.get("name"));
+        source.put("desc", StringUtil.isNotBlank(cardDesc) ? cardDesc + "\n\n" + commentText : commentText);
+        source.put("url", getCardUrl(card) + "#comment-" + comment.id());
+        source.put("board_id", boardId);
+        source.put("last_modified", StringUtil.isNotBlank(comment.date()) ? comment.date() : card.get("dateLastActivity"));
+        source.put("labels", joinLabelNames(card.get("labels")));
+        source.put("comments", "");
+        return source;
     }
 
     /**

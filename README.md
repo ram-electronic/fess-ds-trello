@@ -44,7 +44,7 @@ Set these in the data store config's **Parameter** field
 | `key` | yes | Trello API key. Create a Power-Up at the [Trello Power-Up admin](https://trello.com/power-ups/admin) to get one — Trello requires this even for personal/read-only use. |
 | `token` | yes | API token authorized for that key (generate via the manual token flow linked from the Power-Up's API key page — **not** the "Secret" shown on that same page, which is for OAuth 1.0a; this plugin uses Trello's simpler key+token auth, a different mechanism entirely). |
 | `board_id` | yes | Comma-separated Trello board ids or shortLinks (the code at the end of a board URL, e.g. `https://trello.com/b/aBcD1234/my-board` → `aBcD1234`). |
-| `include_comments` | no | `true` to fetch each card's comments into a `comments` source field, each followed by a direct link to that comment (`<card-url>#comment-<id>`, the same format Trello's own "copy link to comment" feature produces) (default `false`). Embedded in the same per-board `/cards` call via Trello's [nested resources](https://developer.atlassian.com/cloud/trello/guides/rest-api/nested-resources/) — no extra API call per card. |
+| `include_comments` | no | `true` to both (a) fetch each card's comments into a `comments` source field, each followed by a direct link to that comment (`<card-url>#comment-<id>`, the same format Trello's own "copy link to comment" feature produces), and (b) index each comment as its own separate document (`desc` = card description + that one comment, `url` = a direct link to that comment) — see [Comment documents](#comment-documents) below (default `false`). Embedded in the same per-board `/cards` call via Trello's [nested resources](https://developer.atlassian.com/cloud/trello/guides/rest-api/nested-resources/) — no extra API call per card. |
 | `include_closed_cards` | no | `true` to also crawl archived/closed cards (default `false`). |
 | `include_attachments` | no | `true` to also index each card's uploaded file attachments (txt, md, pdf, doc, docx) as separate documents, using Fess's built-in text extractor (default `false`; still costs one download per qualifying attachment, but attachment metadata itself is embedded in the same per-board `/cards` call, not a separate one per card). Attachments over 20MB, non-uploads (e.g. linked URLs), and unrecognized extensions are skipped. |
 | `skip_unmodified` | no | `true` to skip a card entirely (no script evaluation, no attachment work, no index write) when its Trello `dateLastActivity` exactly matches what's already indexed for it from a previous crawl (default `false`). Looked up once per crawl via a single query against Fess's own index — no extra Trello API calls. Lets the Scheduler job run frequently (e.g. every 15 minutes) without redoing work for untouched cards. Assumes `last_modified=last_modified` (a straight passthrough, as in the example script below) — a script that transforms it just stops being skippable, safely, rather than skipping incorrectly. |
@@ -77,6 +77,26 @@ names as a card (`id`, `name`, `desc`, `url`, `board_id`, `last_modified`,
 `comments`) so the same script config indexes both without changes — `desc`
 holds the extracted attachment text instead of the card description, and
 `list`/`due`/`labels` aren't set (map to nothing/empty).
+
+### Comment documents
+
+`include_comments=true` indexes each comment twice, deliberately, for two
+different goals:
+
+- **The card's own document** folds every comment into its `comments`
+  field (used above in `content`/`digest`) so a topic discussed across
+  several comments — plus the card's own description — accumulates enough
+  combined term frequency to make the card itself rank well as a whole.
+- **A separate document per comment** (same field names as a card again:
+  `id`, `name`, `desc`, `url`, `board_id`, `last_modified`, `labels`,
+  `comments`) lets one specific comment be found and linked to directly —
+  something the card's own document can't do, since its `url` is always the
+  plain card link with no comment anchor. `name` is the card's own title
+  (not a synthesized "— comment" label); `desc` is the card's description
+  plus that one comment's text, so a short, low-context comment (e.g.
+  "sounds good") still carries the card's own topic keywords instead of
+  matching on almost nothing; `url` is `<card-url>#comment-<id>`, so
+  clicking this specific search result jumps straight to that comment.
 
 ## Pagination note
 
