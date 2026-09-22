@@ -46,9 +46,10 @@
 	</c:if>
 </div>
 <%--
-	trello_card_url: only set on attachment documents, from fess-ds-trello's
-	card_url source field (#28) -- absent (card/comment docs, or an older
-	fess-ds-trello release) means this renders nothing.
+	trello_card_url: from fess-ds-trello's card_url source field (#28), set
+	on every document type, but only rendered for attachments -- a card's or
+	comment's own url already opens the card. Absent (an older fess-ds-trello
+	release) means this renders nothing.
 --%>
 <c:if test="${doc.trello_type == 'attachment' && !empty doc.trello_card_url && doc.trello_card_url != doc.url_link}">
 	<%-- Hardcoded English label -- a real i18n key would mean also shipping

@@ -189,6 +189,9 @@ public class TrelloDataStoreTest {
         assertEquals("board1", source.get("board_id"));
         assertEquals("2026-01-03T00:00:00.000Z", source.get("last_modified"));
         assertEquals("", source.get("comments"));
+        assertEquals("", source.get("labels"));
+        assertEquals("", source.get("list"));
+        assertEquals("", source.get("due"));
     }
 
     @Test
@@ -249,10 +252,13 @@ public class TrelloDataStoreTest {
         assertEquals("Card Title", source.get("name"));
         assertEquals("Card body\n\nthe comment text", source.get("desc"));
         assertEquals("https://trello.com/c/card1#comment-commentA", source.get("url"));
+        assertEquals("https://trello.com/c/card1", source.get("card_url"));
         assertEquals("board1", source.get("board_id"));
         assertEquals("2026-01-05T00:00:00.000Z", source.get("last_modified"));
         assertEquals("Bug, P1", source.get("labels"));
         assertEquals("", source.get("comments"));
+        assertEquals("", source.get("list"));
+        assertEquals("", source.get("due"));
     }
 
     @Test

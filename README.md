@@ -143,8 +143,13 @@ trello_card_url=card_url
 `card_url` requires `v1.4.0` or later (added in #28) — on an older release,
 **drop `trello_card_url=card_url`**, or Groovy throws
 `MissingPropertyException` on a field that doesn't exist yet (same gotcha
-as `comments` above). Every `trello_*` field is otherwise optional: absent
-means the generic Fess branch renders instead.
+as `comments` above). Likewise, comment and attachment documents only carry
+`list` and `due` (as empty strings) from the release after `v1.4.0` — on
+`v1.4.0` or older, every `trello_type`/`trello_list`/`trello_due` line throws
+for those documents, leaving `trello_type` unset so they render through the
+generic branch. `trello_type` relies on `list` being empty for anything but a
+card. Every `trello_*` field is otherwise optional: absent means the generic
+Fess branch renders instead.
 
 **Applying it:** this repo only ships the two files above, not an installer.
 Both are attached to [Releases](../../releases) alongside the jar (and
