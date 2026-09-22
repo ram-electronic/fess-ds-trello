@@ -161,6 +161,37 @@ plugin jar. Fess's own Page Design admin screen (`/admin/design`) can edit
 Fess already ships — it can't add a new file like `trelloResult.jspf`, so
 that one always needs an image rebuild.
 
+**The `trello_*` fields also have to be told to Fess's search response,
+separately from indexing them.** Fess's search query restricts what
+OpenSearch returns per hit to a fixed field whitelist
+(`org.codelibs.fess.query.QueryFieldConfig`'s `responseFields`, passed to
+OpenSearch as a `FetchSourceContext` include list in
+`SearchEngineClient.java`) — confirmed live: `trello_type` etc. can be
+genuinely present in the index (checked with a direct OpenSearch query)
+and the template correctly deployed, and still never reach
+`doc.trello_type` in the JSP, because Fess's own query never asked
+OpenSearch to return them. Every result then renders through this
+template's generic `<c:otherwise>` branch, which looks exactly like the
+template was never applied at all.
+
+Add the `trello_*` field names to Fess's `query.additional.response.fields`
+config. That key belongs to `FessConfig`/`fess_config.properties`
+(`FessConfigImpl.get()`, resolved via a `System.getProperty("fess.config."
++ key, packagedDefault)` check — `Constants.FESS_CONFIG_PREFIX`), **not**
+Fess's separate admin-editable "System Properties" store
+(`FessProp.getSystemProperty()`, the mechanism `conf/system.properties`
+overrides go through, used for settings like `login.required`) — the two
+configuration systems are unrelated despite the similar names, and setting
+this key through the wrong one does nothing, silently. The one channel
+confirmed live to actually work is a JVM system property, e.g. via a
+`FESS_JAVA_OPTS` environment variable on `codelibs/docker-fess`'s image
+(its `run.sh` passes `FESS_JAVA_OPTS` straight through to the `java`
+invocation):
+
+```
+FESS_JAVA_OPTS=-Dfess.config.query.additional.response.fields=trello_type,trello_list,trello_due,trello_labels,trello_card_url
+```
+
 ## Pagination note
 
 Trello caps a single `/boards/{id}/cards` response at 1000 results.
