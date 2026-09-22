@@ -140,11 +140,11 @@ trello_labels=labels
 trello_card_url=card_url
 ```
 
-`card_url` is on `main` (#28) but not yet in a tagged release (`v1.3.0`
-predates it) — **drop `trello_card_url=card_url`** until the next release,
-or Groovy throws `MissingPropertyException` on a field that doesn't exist
-yet (same gotcha as `comments` above). Every `trello_*` field is otherwise
-optional: absent means the generic Fess branch renders instead.
+`card_url` requires `v1.4.0` or later (added in #28) — on an older release,
+**drop `trello_card_url=card_url`**, or Groovy throws
+`MissingPropertyException` on a field that doesn't exist yet (same gotcha
+as `comments` above). Every `trello_*` field is otherwise optional: absent
+means the generic Fess branch renders instead.
 
 **Applying it:** this repo only ships the two files above, not an installer.
 Both are attached to [Releases](../../releases) alongside the jar (and
@@ -193,7 +193,7 @@ container yourself instead, either:
   workflow, from a specific commit) — verify with the [`gh`
   CLI](https://cli.github.com/):
   ```
-  gh attestation verify fess-ds-trello-1.3.0.jar -R ram-electronic/fess-ds-trello
+  gh attestation verify fess-ds-trello-1.4.0.jar -R ram-electronic/fess-ds-trello
   ```
   or
 - **Build it yourself** with `mvn clean package` (see [Build](#build)
