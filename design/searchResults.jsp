@@ -103,13 +103,13 @@
 	<ol class="list-unstyled col-md-8">
 		<c:forEach var="doc" varStatus="s" items="${documentItems}">
 			<li id="result${s.index}">
-				<%-- fess-ds-trello result rendering; see design/trello-result.jspf
+				<%-- fess-ds-trello result rendering; see design/trelloResult.jspf
 				     and README.md's "Search result template" section. Falls
 				     straight through to Fess's own stock rendering (unchanged,
 				     below) for every other document. --%>
 				<c:choose>
 					<c:when test="${doc.site == 'trello.com' && !empty doc.trello_type}">
-						<%@ include file="/WEB-INF/view/trello-result.jspf" %>
+						<%@ include file="/WEB-INF/view/trelloResult.jspf" %>
 					</c:when>
 					<c:otherwise>
 						<h3 class="title text-truncate">

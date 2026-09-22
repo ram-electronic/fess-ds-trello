@@ -117,11 +117,11 @@ Trello-aware template:
 
 - [`design/searchResults.jsp`](design/searchResults.jsp) — Fess's own
   **15.8.0** stock file, unchanged except for one line: a Trello branch is
-  spliced in via `<%@ include file="/WEB-INF/view/trello-result.jspf" %>`
+  spliced in via `<%@ include file="/WEB-INF/view/trelloResult.jspf" %>`
   when `doc.site == 'trello.com' && !empty doc.trello_type`. Diff this
   against your own `WEB-INF/view/searchResults.jsp` before using it if
   you're on a different Fess version.
-- [`design/trello-result.jspf`](design/trello-result.jspf) — the actual
+- [`design/trelloResult.jspf`](design/trelloResult.jspf) — the actual
   Trello markup (icon, a Card/Comment/Attachment badge, list, label chips,
   due date, and a link back to an attachment's parent card). Isolated here
   so upgrading Fess never touches this file.
@@ -148,7 +148,7 @@ optional: absent means the generic Fess branch renders instead.
 build, alongside the plugin jar. Fess's own Page Design admin screen
 (`/admin/design`) can edit `searchResults.jsp` at runtime without a rebuild,
 but only for filenames Fess already ships — it can't add a new file like
-`trello-result.jspf`, so that one always needs an image rebuild.
+`trelloResult.jspf`, so that one always needs an image rebuild.
 
 ## Pagination note
 
