@@ -39,8 +39,11 @@ import org.codelibs.fess.exception.DataStoreCrawlingException;
 import org.codelibs.fess.helper.CrawlerStatsHelper;
 import org.codelibs.fess.helper.CrawlerStatsHelper.StatsAction;
 import org.codelibs.fess.helper.CrawlerStatsHelper.StatsKeyObject;
+import org.codelibs.fess.mylasta.direction.FessConfig;
 import org.codelibs.fess.opensearch.config.exentity.DataConfig;
 import org.codelibs.fess.util.ComponentUtil;
+import org.opensearch.index.query.QueryBuilder;
+import org.opensearch.index.query.QueryBuilders;
 
 /**
  * Data store crawler for Trello boards.
@@ -87,6 +90,23 @@ import org.codelibs.fess.util.ComponentUtil;
  * via Trello's nested resources in the same per-board card-listing call as
  * {@code include_comments}, so only the file download itself costs an
  * extra request, one per qualifying attachment (default {@code false}).</li>
+ * <li>{@code skip_unmodified} (optional) - {@code true} to skip a card entirely
+ * (no script evaluation, no attachment work, no index write) when its Trello
+ * {@code dateLastActivity} exactly matches the {@code last_modified} value
+ * already indexed for it from a previous crawl. Lets the Scheduler job run
+ * frequently (every few minutes) without redoing work for cards nobody
+ * touched since the last run. Looked up once per crawl via a single query
+ * against Fess's own index for this data config's existing documents (see
+ * {@link #loadIndexedLastModified}) - no extra Trello API calls. Assumes the
+ * configured {@code handler_script} maps {@code last_modified} straight
+ * through from the source record's own {@code last_modified} field with no
+ * transformation; if it doesn't, cards simply stop being skippable (safe -
+ * every card gets reprocessed as if this were {@code false}), never the
+ * other way around. Only the first {@value #MAX_INDEXED_DOCS_TO_CHECK}
+ * already-indexed documents for this data config are considered; a board
+ * with more previously-indexed documents than that falls back to
+ * reprocessing every card beyond that count on every run (default
+ * {@code false}).</li>
  * <li>{@code readInterval} - Interval in milliseconds to wait between cards
  * (default: 0).</li>
  * </ul>
@@ -116,6 +136,14 @@ public class TrelloDataStore extends AbstractDataStore {
     protected static final String INCLUDE_CLOSED_CARDS_PARAM = "include_closed_cards";
 
     protected static final String INCLUDE_ATTACHMENTS_PARAM = "include_attachments";
+
+    protected static final String SKIP_UNMODIFIED_PARAM = "skip_unmodified";
+
+    /** Caps how many already-indexed documents {@link #loadIndexedLastModified} considers per
+     *  crawl (a single, non-scrolled query) - matches OpenSearch's own default
+     *  {@code index.max_result_window}, past which a plain query silently can't page further
+     *  anyway without switching to scroll/search-after. */
+    private static final int MAX_INDEXED_DOCS_TO_CHECK = 10_000;
 
     /** Attachment file extensions (lowercase, no dot) worth extracting text
      *  from — deliberately conservative: anything else (images, video,
@@ -149,8 +177,10 @@ public class TrelloDataStore extends AbstractDataStore {
         final boolean includeComments = paramMap.getAsString(INCLUDE_COMMENTS_PARAM, "false").equalsIgnoreCase("true");
         final boolean includeClosedCards = paramMap.getAsString(INCLUDE_CLOSED_CARDS_PARAM, "false").equalsIgnoreCase("true");
         final boolean includeAttachments = paramMap.getAsString(INCLUDE_ATTACHMENTS_PARAM, "false").equalsIgnoreCase("true");
+        final boolean skipUnmodified = paramMap.getAsString(SKIP_UNMODIFIED_PARAM, "false").equalsIgnoreCase("true");
 
         final List<String> boardIds = getBoardIds(paramMap);
+        final Map<String, String> indexedLastModified = skipUnmodified ? loadIndexedLastModified(dataConfig) : Map.of();
 
         try (final TrelloClient client = createClient(paramMap)) {
             boolean running = true;
@@ -165,6 +195,9 @@ public class TrelloDataStore extends AbstractDataStore {
                         return;
                     }
                     if (!includeClosedCards && Boolean.TRUE.equals(card.get("closed"))) {
+                        return;
+                    }
+                    if (skipUnmodified && isAlreadyIndexedUnmodified(card, indexedLastModified)) {
                         return;
                     }
 
@@ -277,6 +310,52 @@ public class TrelloDataStore extends AbstractDataStore {
      */
     protected TrelloClient createClient(final DataStoreParams paramMap) {
         return new TrelloClient(paramMap.getAsString(KEY_PARAM), paramMap.getAsString(TOKEN_PARAM));
+    }
+
+    /**
+     * @param card The raw card fields, as returned by the Trello API.
+     * @param indexedLastModified Already-indexed {@code url -> last_modified} pairs for this
+     * data config, as loaded by {@link #loadIndexedLastModified}.
+     * @return {@code true} if this card's {@code shortUrl}/{@code url} is already indexed with
+     * a {@code last_modified} exactly matching its current {@code dateLastActivity} - i.e.
+     * nothing about the card has changed since it was last successfully indexed.
+     */
+    protected boolean isAlreadyIndexedUnmodified(final Map<String, Object> card, final Map<String, String> indexedLastModified) {
+        final String cardUrl = card.get("shortUrl") != null ? (String) card.get("shortUrl") : (String) card.get("url");
+        final Object dateLastActivity = card.get("dateLastActivity");
+        return cardUrl != null && dateLastActivity != null && dateLastActivity.equals(indexedLastModified.get(cardUrl));
+    }
+
+    /**
+     * Queries Fess's own already-indexed documents for this data config, to find each one's
+     * currently-indexed {@code last_modified} value - used by {@code skip_unmodified} to avoid
+     * reprocessing a card whose Trello {@code dateLastActivity} hasn't moved since the last
+     * crawl. One query per crawl run, not per card or per board; no Trello API cost.
+     *
+     * @param dataConfig The data store config being crawled.
+     * @return Already-indexed {@code url -> last_modified} pairs for this data config, up to
+     * {@value #MAX_INDEXED_DOCS_TO_CHECK} documents.
+     */
+    protected Map<String, String> loadIndexedLastModified(final DataConfig dataConfig) {
+        final FessConfig fessConfig = ComponentUtil.getFessConfig();
+        final String urlField = fessConfig.getIndexFieldUrl();
+        final String lastModifiedField = fessConfig.getIndexFieldLastModified();
+        final QueryBuilder query = QueryBuilders.termQuery(fessConfig.getIndexFieldConfigId(), dataConfig.getId());
+
+        final List<Map<String, Object>> docs =
+                ComponentUtil.getSearchEngineClient().getDocumentList(fessConfig.getIndexDocumentUpdateIndex(), builder -> {
+                    builder.setQuery(query).setSize(MAX_INDEXED_DOCS_TO_CHECK);
+                    builder.setFetchSource(new String[] { urlField, lastModifiedField }, null);
+                    return true;
+                });
+
+        final Map<String, String> result = new HashMap<>();
+        for (final Map<String, Object> doc : docs) {
+            if (doc.get(urlField) instanceof final String url && doc.get(lastModifiedField) instanceof final String lastModified) {
+                result.put(url, lastModified);
+            }
+        }
+        return result;
     }
 
     /**
