@@ -24,5 +24,19 @@ jobs:
           java-version: "21"
           cache: maven
 
+      # fess-parent (pom.xml's <parent>) wires up com.mycila:license-maven-plugin
+      # and net.revelc.code.formatter:formatter-maven-plugin -- the same code-quality
+      # tooling Fess itself uses (it has no checkstyle/PMD/spotbugs setup). Their
+      # bound executions run "check" (fails on a missing/wrong license header) and
+      # "format" (silently rewrites files to the Eclipse formatter config) respectively,
+      # so invoking them directly here instead, before the build touches anything,
+      # means a formatting drift fails CI loudly rather than getting auto-fixed and
+      # passing regardless.
+      - name: Check code style and license headers
+        run: >-
+          mvn -B
+          net.revelc.code.formatter:formatter-maven-plugin:validate
+          com.mycila:license-maven-plugin:check
+
       - name: Build and test
         run: mvn -B clean package
