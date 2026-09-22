@@ -58,7 +58,7 @@ The plugin doesn't hard-code index fields — map source fields to them in the
 ```
 title=name
 content=desc + (comments != null && comments != "" ? "\n\n" + comments : "")
-digest=desc + (comments != null && comments != "" ? "\n\n" + comments : "")
+digest=(desc + (comments != null && comments != "" ? "\n\n" + comments : "")).with { it.length() > 200 ? it.take(200) + "..." : it }
 url=url
 last_modified=last_modified
 ```
@@ -67,6 +67,19 @@ last_modified=last_modified
 against another line's output**, so `digest=content` silently resolves to
 nothing. Repeat the whole expression instead (as above) if you want `digest`
 to match `content`.
+
+**`digest` should stay short — Fess doesn't truncate it for you.** A search
+result's "description" line normally comes from a highlighted snippet of
+`content`, but Fess falls back to the *raw, unhighlighted, un-truncated*
+`digest` field whenever the query didn't produce a content highlight (e.g.
+the match was only in the title) — confirmed live, downstream: with
+`digest` left as a plain, untruncated copy of `content`, results sometimes
+showed an entire card's full text (description + every comment, several KB
+of forwarded email in one real case) instead of a short preview. The
+`.with { ... }` above caps it at 200 characters, matching the length other
+Fess data stores typically use. `content` itself stays untruncated in the
+example — it's the actual indexed/searchable field and is never displayed
+directly, so truncating it would only hurt search quality for no benefit.
 
 Source fields available: `id`, `name`, `desc`, `url`, `card_url`, `board_id`,
 `list`, `due`, `last_modified`, `labels`, and `comments` (only present when
