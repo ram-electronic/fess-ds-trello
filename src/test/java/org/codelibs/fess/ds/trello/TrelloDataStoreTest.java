@@ -17,6 +17,7 @@ package org.codelibs.fess.ds.trello;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -171,6 +172,27 @@ public class TrelloDataStoreTest {
         // Trello omits `bytes` for some attachments -- -1 shouldn't be treated as "oversized".
         assertTrue(dataStore.isExtractable(
                 new TrelloClient.Attachment("a1", "notes.pdf", "https://trello.com/1/notes.pdf", "application/pdf", -1, true, null)));
+    }
+
+    @Test
+    public void getAttachmentMimeType_fromExtension() {
+        assertEquals("application/pdf", dataStore.getAttachmentMimeType(
+                new TrelloClient.Attachment("a1", "Notes.PDF", "https://trello.com/1/Notes.PDF", null, 100, true, null)));
+        assertEquals("application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                dataStore.getAttachmentMimeType(new TrelloClient.Attachment("a1", "spec.docx", "https://trello.com/1/spec.docx",
+                        "application/octet-stream", 100, true, null)));
+        assertEquals("text/plain", dataStore
+                .getAttachmentMimeType(new TrelloClient.Attachment("a1", "log.txt", "https://trello.com/1/log.txt", "", 100, true, null)));
+    }
+
+    @Test
+    public void getAttachmentMimeType_unrecognizedOrMissingExtension_null() {
+        assertNull(dataStore.getAttachmentMimeType(
+                new TrelloClient.Attachment("a1", "photo.png", "https://trello.com/1/photo.png", "image/png", 100, true, null)));
+        assertNull(dataStore
+                .getAttachmentMimeType(new TrelloClient.Attachment("a1", "README", "https://trello.com/1/README", null, 100, true, null)));
+        assertNull(dataStore.getAttachmentMimeType(
+                new TrelloClient.Attachment("a1", "trailing.", "https://trello.com/1/trailing.", null, 100, true, null)));
     }
 
     @Test
