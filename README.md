@@ -153,22 +153,24 @@ comments, and attachments apart; comments are distinguished from
 attachments by the `#comment-<id>` suffix `createCommentSourceRecord` adds
 to their `url`.)
 
-`trello_card_url=card_url` requires
-[PR #28](https://github.com/ram-electronic/fess-ds-trello/pull/28) (not yet
-merged at the time of writing) — it adds a `card_url` source field so an
-**attachment** document's search result can link back to the Trello card
-it's attached to, not just to the raw attachment file. On a `fess-ds-trello` release that predates it, `card_url` doesn't exist in
-the source record at all — **you must drop the `trello_card_url=card_url`
-line** on those releases, the same way this repo's own `handler_script`
-docs already warn about `comments`: referencing a source field Groovy
-doesn't actually have throws `MissingPropertyException` and fails the
-crawl outright, it does not just resolve to an empty value. Once you're on
-a release with `card_url`, mapping it is safe to leave in permanently; the
-template itself only *renders* the "open card" link when
-`trello_card_url` is both present and different from the result's own
-link, so it degrades to no-op there. Card and comment documents don't need
-this field either way: a card's own `url_link` already *is* the card, and
-a comment's already points straight at it (with a `#comment-<id>` anchor).
+`trello_card_url=card_url` depends on the `card_url` source field, added in
+[#28](https://github.com/ram-electronic/fess-ds-trello/pull/28) — it's on
+`main` now, so an **attachment** document's search result can link back to
+the Trello card it's attached to, not just to the raw attachment file. It
+is **not yet in a tagged release**: the latest release, `v1.3.0`, predates
+that merge, so if you're running a released jar rather than building from
+`main` yourself, `card_url` doesn't exist in the source record yet, and
+**you must drop the `trello_card_url=card_url` line** until the next
+release picks it up — the same way this repo's own `handler_script` docs
+already warn about `comments`: referencing a source field Groovy doesn't
+actually have throws `MissingPropertyException` and fails the crawl
+outright, it does not just resolve to an empty value. Once you're on a
+release with `card_url`, mapping it is safe to leave in permanently; the
+template itself only *renders* the "open card" link when `trello_card_url`
+is both present and different from the result's own link, so it degrades
+to no-op there. Card and comment documents don't need this field either
+way: a card's own `url_link` already *is* the card, and a comment's
+already points straight at it (with a `#comment-<id>` anchor).
 
 `trello_type`/`trello_list`/`trello_due`/`trello_labels` are **not**
 built-in Fess fields — like any custom `handler_script` output field,

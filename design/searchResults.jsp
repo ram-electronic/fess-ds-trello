@@ -149,11 +149,12 @@
 							</c:if>
 						</div>
 						<%--
-							card_url only exists on documents from fess-ds-trello >=
-							(whatever release lands PR #28); on an older release, or on
-							a card/comment document (whose own url_link already IS the
-							card, or points straight at it), trello_card_url is simply
-							absent/blank and this block renders nothing.
+							card_url landed in fess-ds-trello via #28 (merged to main,
+							not yet in a tagged release as of v1.3.0) — on a release
+							without it, or on a card/comment document (whose own
+							url_link already IS the card, or points straight at it),
+							trello_card_url is simply absent/blank and this block
+							renders nothing.
 						--%>
 						<c:if test="${doc.trello_type == 'attachment' && !empty doc.trello_card_url && doc.trello_card_url != doc.url_link}">
 							<%-- Hardcoded English label: adding a proper i18n message key
