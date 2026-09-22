@@ -103,96 +103,13 @@
 	<ol class="list-unstyled col-md-8">
 		<c:forEach var="doc" varStatus="s" items="${documentItems}">
 			<li id="result${s.index}">
-				<%--
-					fess-ds-trello result rendering — see design/README.md in
-					ram-electronic/fess-ds-trello for the handler_script fields
-					this expects (trello_type/trello_list/trello_due/trello_labels).
-					Falls straight through to Fess's own stock rendering for every
-					other document, so this file is a safe drop-in even on a Fess
-					instance that also crawls non-Trello sources.
-				--%>
+				<%-- fess-ds-trello result rendering; see design/trello-result.jspf
+				     and README.md's "Search result template" section. Falls
+				     straight through to Fess's own stock rendering (unchanged,
+				     below) for every other document. --%>
 				<c:choose>
 					<c:when test="${doc.site == 'trello.com' && !empty doc.trello_type}">
-						<h3 class="title text-truncate">
-							<i class="fab fa-trello text-primary" aria-hidden="true" title="Trello"></i>
-							<a class="link" href="${doc.url_link}" data-uri="${doc.url_link}"
-								data-id="${doc.doc_id}" data-order="${s.index}">${doc.content_title}</a>
-						</h3>
-						<div class="body">
-							<c:if test="${thumbnailSupport && !empty doc.thumbnail}">
-							<div class="me-3">
-								<a class="link d-none d-sm-flex" href="${doc.url_link}" data-uri="${doc.url_link}" data-id="${doc.doc_id}"
-									data-order="${s.index}"
-								> <img src="${fe:url('/images/blank.png')}" alt="thumbnail"
-									data-src="${fe:url('/thumbnail/')}?docId=${f:u(doc.doc_id)}&queryId=${f:u(queryId)}" class="thumbnail"
-								>
-								</a>
-							</div>
-							</c:if>
-							<div class="description">${doc.content_description}</div>
-						</div>
-						<div class="trello-meta text-truncate mb-1">
-							<span class="badge rounded-pill text-bg-info text-uppercase">${f:h(doc.trello_type)}</span>
-							<c:if test="${!empty doc.trello_list}">
-								<span class="badge rounded-pill text-bg-secondary">${f:h(doc.trello_list)}</span>
-							</c:if>
-							<c:if test="${!empty doc.trello_labels}">
-								<c:forEach var="trelloLabel" items="${fn:split(doc.trello_labels, ',')}">
-									<span class="badge rounded-pill text-bg-light border">${f:h(trelloLabel)}</span>
-								</c:forEach>
-							</c:if>
-							<c:if test="${!empty doc.trello_due}">
-								<span class="badge rounded-pill text-bg-warning">
-									<i class="far fa-clock" aria-hidden="true"></i>
-									<fmt:formatDate value="${fe:parseDate(doc.trello_due)}" type="DATE" pattern="yyyy-MM-dd" />
-								</span>
-							</c:if>
-						</div>
-						<%--
-							card_url landed in fess-ds-trello via #28 (merged to main,
-							not yet in a tagged release as of v1.3.0) — on a release
-							without it, or on a card/comment document (whose own
-							url_link already IS the card, or points straight at it),
-							trello_card_url is simply absent/blank and this block
-							renders nothing.
-						--%>
-						<c:if test="${doc.trello_type == 'attachment' && !empty doc.trello_card_url && doc.trello_card_url != doc.url_link}">
-							<%-- Hardcoded English label: adding a proper i18n message key
-							     would mean also shipping/merging changes into Fess's own
-							     labels_*.properties, out of scope for a drop-in template. --%>
-							<div class="trello-card-link mb-1">
-								<a href="${f:h(doc.trello_card_url)}" class="small">
-									<i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
-									Open Trello card
-								</a>
-							</div>
-						</c:if>
-						<div class="site text-truncate">
-							<c:if test="${clipboardCopyIcon}"><i class="far fa-copy url-copy d-print-none" data-clipboard-text="${doc.url_link}" aria-hidden="true"></i></c:if>
-							<cite>${f:h(doc.site_path)}</cite>
-						</div>
-						<div class="more">
-							<a href="#result${s.index}" aria-label="<la:message key="labels.search_result_more" /> - ${f:h(doc.content_title)}"><la:message
-									key="labels.search_result_more" /></a>
-						</div>
-						<div class="info">
-							<fmt:formatDate value="${fe:parseDate(doc.last_modified)}" type="BOTH" pattern="yyyy-MM-dd HH:mm" />
-							<c:if test="${doc.last_modified==null || doc.last_modified==''}">
-								<fmt:formatDate value="${fe:parseDate(doc.created)}" type="BOTH" pattern="yyyy-MM-dd HH:mm" />
-							</c:if>
-							<c:if test="${searchLogSupport && doc.click_count!=null && doc.click_count>0}">
-								<div class="d-sm-none"></div>
-								<span class="d-none d-sm-inline-block">&nbsp;</span>
-								<la:message key="labels.search_click_views"
-									arg0="${f:h(doc.click_count)}" />
-							</c:if>
-							<c:if test="${favoriteSupport}">
-								<div class="d-sm-none"></div>
-								<span class="d-none d-sm-inline-block">&nbsp;</span>
-								<a href="#${doc.doc_id}" class="favorite"><i class="far fa-star" aria-hidden="true"></i></a>
-								<span class="favorited"><i class="fas fa-star" aria-hidden="true"></i></span>
-							</c:if>
-						</div>
+						<%@ include file="/WEB-INF/view/trello-result.jspf" %>
 					</c:when>
 					<c:otherwise>
 						<h3 class="title text-truncate">

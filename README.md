@@ -110,34 +110,24 @@ different goals:
 
 ## Search result template
 
-`TrelloDataStore` indexes cards, comments, and attachments as separate
-documents (since v1.1.0 — see `createSourceRecord`,
-`createCommentSourceRecord`, and `createAttachmentSourceRecord`), but Fess's
-own search UI renders every hit with one generic template
-(`WEB-INF/view/searchResults.jsp`), regardless of source. Out of the box a
-Trello comment looks exactly like a plain web page in results — no board,
-list, label, or due-date context, and no visual distinction from a card or
-an attachment.
+Fess renders every search result with one generic template
+(`WEB-INF/view/searchResults.jsp`), so a Trello card, comment, or attachment
+looks like a plain web page by default. `design/` ships an optional
+Trello-aware template:
 
-[`design/searchResults.jsp`](design/searchResults.jsp) in this repo is a
-drop-in replacement for Fess's stock `searchResults.jsp` that adds a Trello-
-specific rendering branch (icon, a type badge — Card / Comment / Attachment
-— list name, label chips, due date) while leaving every other document's
-rendering completely untouched. It's based on Fess **15.8.0**'s stock file;
-if you're on a different Fess version, diff it against your own
-`WEB-INF/view/searchResults.jsp` before using it — Fess doesn't guarantee
-this file stays byte-for-byte stable across releases, and this template
-does not use a generic per-source include point (Fess doesn't have one), so
-it's a whole-file replacement, not a fragment Fess merges in for you.
+- [`design/searchResults.jsp`](design/searchResults.jsp) — Fess's own
+  **15.8.0** stock file, unchanged except for one line: a Trello branch is
+  spliced in via `<%@ include file="/WEB-INF/view/trello-result.jspf" %>`
+  when `doc.site == 'trello.com' && !empty doc.trello_type`. Diff this
+  against your own `WEB-INF/view/searchResults.jsp` before using it if
+  you're on a different Fess version.
+- [`design/trello-result.jspf`](design/trello-result.jspf) — the actual
+  Trello markup (icon, a Card/Comment/Attachment badge, list, label chips,
+  due date, and a link back to an attachment's parent card). Isolated here
+  so upgrading Fess never touches this file.
 
-### Fields this template expects
-
-The template renders its Trello branch when a document has `site` ==
-`trello.com` and a non-empty `trello_type` field. None of these are
-produced automatically — they're computed from `TrelloDataStore`'s own
-source record fields (`list`, `due`, `labels`, `url`) by your Data Store
-config's `handler_script`. Add this to whatever `handler_script` you're
-already using to map `name`/`desc`/`url`/etc. into Fess's document fields:
+It expects these `handler_script` fields, in addition to the ones in
+[Script (field mapping)](#script-field-mapping) above:
 
 ```groovy
 trello_type=list?.toString()?.trim() ? "card" : (url.contains("#comment-") ? "comment" : "attachment")
@@ -147,64 +137,18 @@ trello_labels=labels
 trello_card_url=card_url
 ```
 
-(`list`, `due`, and `labels` are only ever set on cards — see
-`createSourceRecord`'s Javadoc — so the ternary above is what tells cards,
-comments, and attachments apart; comments are distinguished from
-attachments by the `#comment-<id>` suffix `createCommentSourceRecord` adds
-to their `url`.)
+`card_url` is on `main` (#28) but not yet in a tagged release (`v1.3.0`
+predates it) — **drop `trello_card_url=card_url`** until the next release,
+or Groovy throws `MissingPropertyException` on a field that doesn't exist
+yet (same gotcha as `comments` above). Every `trello_*` field is otherwise
+optional: absent means the generic Fess branch renders instead.
 
-`trello_card_url=card_url` depends on the `card_url` source field, added in
-[#28](https://github.com/ram-electronic/fess-ds-trello/pull/28) — it's on
-`main` now, so an **attachment** document's search result can link back to
-the Trello card it's attached to, not just to the raw attachment file. It
-is **not yet in a tagged release**: the latest release, `v1.3.0`, predates
-that merge, so if you're running a released jar rather than building from
-`main` yourself, `card_url` doesn't exist in the source record yet, and
-**you must drop the `trello_card_url=card_url` line** until the next
-release picks it up — the same way this repo's own `handler_script` docs
-already warn about `comments`: referencing a source field Groovy doesn't
-actually have throws `MissingPropertyException` and fails the crawl
-outright, it does not just resolve to an empty value. Once you're on a
-release with `card_url`, mapping it is safe to leave in permanently; the
-template itself only *renders* the "open card" link when `trello_card_url`
-is both present and different from the result's own link, so it degrades
-to no-op there. Card and comment documents don't need this field either
-way: a card's own `url_link` already *is* the card, and a comment's
-already points straight at it (with a `#comment-<id>` anchor).
-
-`trello_type`/`trello_list`/`trello_due`/`trello_labels` are **not**
-built-in Fess fields — like any custom `handler_script` output field,
-they need to actually be retrievable at search time. If your Fess index
-mapping doesn't already allow arbitrary extra keyword fields, add them to
-your crawl/index config (or Fess's document mapping) the same way you
-would any other custom field before relying on them here; the template
-degrades gracefully (falls through to the generic branch) if they're
-simply absent, so a missing field means "generic rendering," not an error.
-
-### Applying it
-
-This repo only ships the template — it doesn't install it into any
-particular Fess deployment, since that depends on how you run Fess. Two
-ways to apply it, from lowest to highest effort:
-
-1. **At image build time** (recommended for anything managed as
-   infrastructure-as-code): fetch `design/searchResults.jsp` from this repo
-   at whatever ref/tag you're already pinning the plugin jar to (e.g.
-   `raw.githubusercontent.com/ram-electronic/fess-ds-trello/<tag>/design/searchResults.jsp` —
-   it isn't currently attached as its own release asset the way the jar is)
-   and `COPY` it to `/usr/share/fess/app/WEB-INF/view/searchResults.jsp` in
-   your Fess image build, next to wherever you already `COPY` in the plugin
-   jar itself.
-2. **At runtime, via Fess's own Page Design admin screen**
-   (`/admin/design`, `AdminDesignAction` — Fess 15.x and later): edit
-   `searchResults.jsp` there and paste this file's contents in. No image
-   rebuild needed, but it's a session-authenticated admin form, not a
-   JSON/REST API, so it isn't something you can drive with a simple
-   bearer-token HTTP call the way Fess's `/api/admin/dataconfig` and
-   `/api/admin/scheduler` endpoints are.
-
-Either way, re-apply the template whenever you upgrade Fess, since it's a
-full replacement of a file Fess itself owns and may change.
+**Applying it:** this repo only ships the two files above, not an installer.
+`COPY` both into `/usr/share/fess/app/WEB-INF/view/` in your Fess image
+build, alongside the plugin jar. Fess's own Page Design admin screen
+(`/admin/design`) can edit `searchResults.jsp` at runtime without a rebuild,
+but only for filenames Fess already ships — it can't add a new file like
+`trello-result.jspf`, so that one always needs an image rebuild.
 
 ## Pagination note
 
