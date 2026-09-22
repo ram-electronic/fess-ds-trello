@@ -230,6 +230,53 @@ public class TrelloDataStoreTest {
         assertTrue(dataStore.isAlreadyIndexedUnmodified(card, indexed));
     }
 
+    @Test
+    public void createCommentSourceRecord_combinesCardDescAndComment() {
+        final Map<String, Object> card = new HashMap<>();
+        card.put("name", "Card Title");
+        card.put("desc", "Card body");
+        card.put("shortUrl", "https://trello.com/c/card1");
+        card.put("labels", labelList("Bug", "P1"));
+        card.put("dateLastActivity", "2026-01-02T00:00:00.000Z");
+        final TrelloClient.Comment comment = new TrelloClient.Comment("commentA", "the comment text", "2026-01-05T00:00:00.000Z");
+
+        final Map<String, Object> source = dataStore.createCommentSourceRecord("board1", card, comment);
+
+        assertEquals("commentA", source.get("id"));
+        assertEquals("Card Title", source.get("name"));
+        assertEquals("Card body\n\nthe comment text", source.get("desc"));
+        assertEquals("https://trello.com/c/card1#comment-commentA", source.get("url"));
+        assertEquals("board1", source.get("board_id"));
+        assertEquals("2026-01-05T00:00:00.000Z", source.get("last_modified"));
+        assertEquals("Bug, P1", source.get("labels"));
+        assertEquals("", source.get("comments"));
+    }
+
+    @Test
+    public void createCommentSourceRecord_omitsDescSeparator_whenCardDescBlank() {
+        final Map<String, Object> card = new HashMap<>();
+        card.put("name", "Card Title");
+        card.put("shortUrl", "https://trello.com/c/card1");
+        final TrelloClient.Comment comment = new TrelloClient.Comment("commentA", "the comment text", null);
+
+        final Map<String, Object> source = dataStore.createCommentSourceRecord("board1", card, comment);
+
+        assertEquals("the comment text", source.get("desc"));
+    }
+
+    @Test
+    public void createCommentSourceRecord_fallsBackToCardLastModified_whenCommentDateMissing() {
+        final Map<String, Object> card = new HashMap<>();
+        card.put("name", "Card Title");
+        card.put("shortUrl", "https://trello.com/c/card1");
+        card.put("dateLastActivity", "2026-01-02T00:00:00.000Z");
+        final TrelloClient.Comment comment = new TrelloClient.Comment("commentA", "the comment text", null);
+
+        final Map<String, Object> source = dataStore.createCommentSourceRecord("board1", card, comment);
+
+        assertEquals("2026-01-02T00:00:00.000Z", source.get("last_modified"));
+    }
+
     private static Map<String, Object> commentAction(final String id, final String text) {
         final Map<String, Object> action = new HashMap<>();
         action.put("id", id);
