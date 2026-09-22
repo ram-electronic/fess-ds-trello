@@ -68,15 +68,25 @@ against another line's output**, so `digest=content` silently resolves to
 nothing. Repeat the whole expression instead (as above) if you want `digest`
 to match `content`.
 
-Source fields available: `id`, `name`, `desc`, `url`, `board_id`, `list`,
-`due`, `last_modified`, `labels`, and `comments` (only present when
+Source fields available: `id`, `name`, `desc`, `url`, `card_url`, `board_id`,
+`list`, `due`, `last_modified`, `labels`, and `comments` (only present when
 `include_comments=true`).
 
 Attachment documents (when `include_attachments=true`) reuse the same field
-names as a card (`id`, `name`, `desc`, `url`, `board_id`, `last_modified`,
-`comments`) so the same script config indexes both without changes — `desc`
-holds the extracted attachment text instead of the card description, and
-`list`/`due`/`labels` aren't set (map to nothing/empty).
+names as a card (`id`, `name`, `desc`, `url`, `card_url`, `board_id`,
+`last_modified`, `comments`) so the same script config indexes both without
+changes — `desc` holds the extracted attachment text instead of the card
+description, and `list`/`due`/`labels` aren't set (map to nothing/empty).
+`url` is the attachment's own direct download link; `card_url` is the link
+to the Trello card it's attached to (for a card document, `card_url` is
+just the card's own `url`). Map both to separate index fields if you want
+search results to offer opening the attachment directly *or* jumping to its
+card, e.g. add a custom field:
+
+```
+url=url
+card_url=card_url
+```
 
 ### Comment documents
 
