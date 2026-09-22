@@ -99,30 +99,38 @@ public class TrelloClient implements Closeable {
      * 1000-result-per-call cap.
      *
      * <p>
-     * When requested, comments and attachments are pulled in via Trello's
+     * Attachments, when requested, are pulled in via Trello's
      * <a href="https://developer.atlassian.com/cloud/trello/guides/rest-api/nested-resources/">
      * nested resources</a> feature — embedded directly in each card object
-     * returned by this same call — rather than one extra API call per card
-     * per feature. Use {@link #parseComments(Map)}/{@link #parseAttachments(Map)}
-     * to read them back out of the card map handed to {@code consumer}.
+     * returned by this same call — rather than one extra API call per card.
+     * Use {@link #parseAttachments(Map)} to read them back out of the card map
+     * handed to {@code consumer}.
+     * </p>
+     *
+     * <p>
+     * Comments are deliberately <b>not</b> embedded this way (unlike before -
+     * see {@link #getComments(String)}): Trello enforces an undocumented cap
+     * on how many cards can be requested with embedded {@code actions} in one
+     * call, returning a 403 {@code API_TOO_MANY_CARDS_REQUESTED} once a board
+     * has enough cards - confirmed in production, aborting the entire crawl
+     * (the exception propagates out of this method before any card is
+     * processed), not just costing more API calls. Attachments aren't
+     * confirmed to hit the same cap (no reports found), so they stay embedded;
+     * if that ever turns out to be wrong too, drop {@code attachments}/
+     * {@code attachment_fields} here the same way {@code actions} was dropped.
      * </p>
      *
      * @param boardId The Trello board id or shortLink.
-     * @param includeComments Whether to embed each card's comment actions.
      * @param includeAttachments Whether to embed each card's attachments.
      * @param consumer Callback invoked once per card.
      */
     @SuppressWarnings("unchecked")
-    public void getCards(final String boardId, final boolean includeComments, final boolean includeAttachments,
-            final Consumer<Map<String, Object>> consumer) {
+    public void getCards(final String boardId, final boolean includeAttachments, final Consumer<Map<String, Object>> consumer) {
         String beforeId = null;
         while (true) {
             final Map<String, String> params = new HashMap<>();
             params.put("limit", String.valueOf(PAGE_LIMIT));
             params.put("fields", "name,desc,shortUrl,url,idList,due,dateLastActivity,labels,idMembers,closed");
-            if (includeComments) {
-                params.put("actions", "commentCard");
-            }
             if (includeAttachments) {
                 params.put("attachments", "true");
                 params.put("attachment_fields", "name,url,mimeType,bytes,isUpload,date");
@@ -145,26 +153,18 @@ public class TrelloClient implements Closeable {
     }
 
     /**
-     * Reads a card's comments back out of its own map, as embedded by
-     * {@link #getCards} when called with {@code includeComments} true —
-     * no separate API call.
-     *
-     * @param card A card map, as handed to the {@code consumer} of {@link #getCards}.
-     * @return Each comment on the card, oldest first (or empty if comments weren't embedded).
+     * @param cardId The Trello card id.
+     * @return Each comment on the card, oldest first.
      */
-    public static List<Comment> parseComments(final Map<String, Object> card) {
-        final Object rawActions = card.get("actions");
-        if (!(rawActions instanceof final List<?> actions)) {
-            return List.of();
-        }
+    @SuppressWarnings("unchecked")
+    public List<Comment> getComments(final String cardId) {
+        final List<Map<String, Object>> actions = (List<Map<String, Object>>) get(API_BASE + "/cards/" + cardId + "/actions",
+                Map.of("filter", "commentCard", "fields", "data,date"));
         final List<Comment> comments = new ArrayList<>();
         for (int i = actions.size() - 1; i >= 0; i--) {
-            if (!(actions.get(i) instanceof final Map<?, ?> action)) {
-                continue;
-            }
-            final Object data = action.get("data");
-            if (data instanceof final Map<?, ?> dataMap && dataMap.get("text") instanceof final String text
-                    && action.get("id") instanceof final String id) {
+            final Map<String, Object> action = actions.get(i);
+            final Map<String, Object> data = (Map<String, Object>) action.get("data");
+            if (data != null && data.get("text") instanceof final String text && action.get("id") instanceof final String id) {
                 final String date = action.get("date") instanceof final String d ? d : null;
                 comments.add(new Comment(id, text, date));
             }

@@ -76,9 +76,13 @@ import org.opensearch.index.query.QueryBuilders;
  * comment as its own separate document (see {@link #storeComments}) — its
  * {@code desc} the card's description plus that one comment, its {@code url}
  * a direct link to that specific comment — so a single comment can also be
- * found and linked to on its own (default {@code false}; embedded via
- * Trello's nested resources in the same per-board card-listing call — no
- * extra API call per card).</li>
+ * found and linked to on its own (default {@code false}; costs one extra
+ * Trello API call per card — see {@link TrelloClient#getComments}. Not
+ * embedded via Trello's nested resources the way {@code include_attachments}
+ * is below: Trello enforces an undocumented cap on how many cards can be
+ * requested with embedded comment actions in one call, which aborted the
+ * entire crawl with a 403 {@code API_TOO_MANY_CARDS_REQUESTED} once a board
+ * had enough cards — confirmed in production).</li>
  * <li>{@code include_closed_cards} (optional) - {@code true} to also crawl
  * archived cards (default {@code false}).</li>
  * <li>{@code include_attachments} (optional) - {@code true} to also index each
@@ -99,9 +103,11 @@ import org.opensearch.index.query.QueryBuilders;
  * (images, video, oversized files, ...) is skipped. Text is pulled out via
  * Fess's own {@link ExtractorFactory} (the same Tika-backed extraction the
  * web crawler and other data stores use). Attachment metadata is embedded
- * via Trello's nested resources in the same per-board card-listing call as
- * {@code include_comments}, so only the file download itself costs an
- * extra request, one per qualifying attachment (default {@code false}).</li>
+ * via Trello's nested resources in the same per-board card-listing call
+ * (unlike {@code include_comments} above — no confirmed report of the same
+ * per-request cap applying to attachments), so only the file download itself
+ * costs an extra request, one per qualifying attachment (default
+ * {@code false}).</li>
  * <li>{@code skip_unmodified} (optional) - {@code true} to skip a card entirely
  * (no script evaluation, no attachment work, no index write) when its Trello
  * {@code dateLastActivity} exactly matches the {@code last_modified} value
@@ -202,7 +208,7 @@ public class TrelloDataStore extends AbstractDataStore {
                 }
                 final Map<String, String> listNames = client.getLists(boardId);
                 final boolean[] runningRef = { running };
-                client.getCards(boardId, includeComments, includeAttachments, card -> {
+                client.getCards(boardId, includeAttachments, card -> {
                     if (!runningRef[0]) {
                         return;
                     }
@@ -220,7 +226,8 @@ public class TrelloDataStore extends AbstractDataStore {
                     try {
                         crawlerStatsHelper.begin(statsKey);
 
-                        final Map<String, Object> source = createSourceRecord(boardId, listNames, card, includeComments);
+                        final List<TrelloClient.Comment> comments = includeComments ? client.getComments(cardId) : List.of();
+                        final Map<String, Object> source = createSourceRecord(boardId, listNames, card, includeComments, comments);
 
                         final Map<String, Object> resultMap = new LinkedHashMap<>(paramMap.asMap());
                         resultMap.putAll(source);
@@ -250,7 +257,7 @@ public class TrelloDataStore extends AbstractDataStore {
 
                         if (includeComments) {
                             storeComments(dataConfig, callback, paramMap, scriptMap, defaultDataMap, scriptType, crawlerStatsHelper,
-                                    boardId, cardId, card, TrelloClient.parseComments(card));
+                                    boardId, cardId, card, comments);
                         }
                     } catch (final CrawlingAccessException e) {
                         logger.warn("Crawling Access Exception at : {}", dataMap, e);
@@ -381,9 +388,10 @@ public class TrelloDataStore extends AbstractDataStore {
      *
      * @param boardId The id of the board the card belongs to.
      * @param listNames A map of list id to list name for the card's board.
-     * @param card The raw card fields, as returned by the Trello API — including embedded
-     * comment actions when {@code includeComments} was passed to {@link TrelloClient#getCards}.
-     * @param includeComments Whether to read and join the card's embedded comments.
+     * @param card The raw card fields, as returned by the Trello API.
+     * @param includeComments Whether to join {@code comments} into the source record.
+     * @param comments The card's comments (see {@link TrelloClient#getComments}), or empty if
+     * {@code includeComments} is {@code false}.
      * @return The source record: {@code id}, {@code name}, {@code desc}, {@code url},
      * {@code card_url} (the card's own URL, same as {@code url} — present so a script map
      * can reference {@code card_url} unconditionally on both card and attachment documents;
@@ -392,7 +400,7 @@ public class TrelloDataStore extends AbstractDataStore {
      * and, when requested, {@code comments}.
      */
     protected Map<String, Object> createSourceRecord(final String boardId, final Map<String, String> listNames,
-            final Map<String, Object> card, final boolean includeComments) {
+            final Map<String, Object> card, final boolean includeComments, final List<TrelloClient.Comment> comments) {
         final Map<String, Object> source = new HashMap<>();
         final String cardId = (String) card.get("id");
         final String cardUrl = getCardUrl(card);
@@ -408,7 +416,7 @@ public class TrelloDataStore extends AbstractDataStore {
         source.put("labels", joinLabelNames(card.get("labels")));
 
         if (includeComments) {
-            source.put("comments", joinComments(TrelloClient.parseComments(card), cardUrl));
+            source.put("comments", joinComments(comments, cardUrl));
         }
         return source;
     }
@@ -549,8 +557,8 @@ public class TrelloDataStore extends AbstractDataStore {
      * @param boardId The id of the board the card belongs to.
      * @param cardId The card whose comments to index.
      * @param card The raw card fields, as returned by the Trello API.
-     * @param comments The card's comments, as embedded by {@link TrelloClient#getCards} (see
-     * {@link TrelloClient#parseComments}) — no separate API call to list them.
+     * @param comments The card's comments (see {@link TrelloClient#getComments}) — already
+     * fetched once for {@link #createSourceRecord}, reused here rather than fetched again.
      */
     private void storeComments(final DataConfig dataConfig, final IndexUpdateCallback callback, final DataStoreParams paramMap,
             final Map<String, String> scriptMap, final Map<String, Object> defaultDataMap, final String scriptType,

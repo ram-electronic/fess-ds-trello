@@ -22,10 +22,10 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Covers {@link TrelloClient}'s constructor validation. Its actual API
- * methods ({@code getLists}, {@code getCards}) issue real HTTP calls to
- * {@code api.trello.com} and aren't covered here. {@code parseComments}/
- * {@code parseAttachments} are pure card-map parsers and are covered via
- * {@link TrelloDataStoreTest} instead, where their input is easy to build.
+ * methods ({@code getLists}, {@code getCards}, {@code getComments}) issue
+ * real HTTP calls to {@code api.trello.com} and aren't covered here.
+ * {@code parseAttachments} is a pure card-map parser and is covered via
+ * {@link TrelloDataStoreTest} instead, where its input is easy to build.
  */
 public class TrelloClientTest {
 
