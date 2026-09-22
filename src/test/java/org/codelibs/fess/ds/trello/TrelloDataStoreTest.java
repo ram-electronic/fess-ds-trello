@@ -188,6 +188,48 @@ public class TrelloDataStoreTest {
         assertEquals("", source.get("comments"));
     }
 
+    @Test
+    public void isAlreadyIndexedUnmodified_matchingLastModified_true() {
+        final Map<String, Object> card = new HashMap<>();
+        card.put("shortUrl", "https://trello.com/c/card1");
+        card.put("dateLastActivity", "2026-01-02T00:00:00.000Z");
+
+        final Map<String, String> indexed = Map.of("https://trello.com/c/card1", "2026-01-02T00:00:00.000Z");
+
+        assertTrue(dataStore.isAlreadyIndexedUnmodified(card, indexed));
+    }
+
+    @Test
+    public void isAlreadyIndexedUnmodified_differentLastModified_false() {
+        final Map<String, Object> card = new HashMap<>();
+        card.put("shortUrl", "https://trello.com/c/card1");
+        card.put("dateLastActivity", "2026-01-03T00:00:00.000Z");
+
+        final Map<String, String> indexed = Map.of("https://trello.com/c/card1", "2026-01-02T00:00:00.000Z");
+
+        assertFalse(dataStore.isAlreadyIndexedUnmodified(card, indexed));
+    }
+
+    @Test
+    public void isAlreadyIndexedUnmodified_notYetIndexed_false() {
+        final Map<String, Object> card = new HashMap<>();
+        card.put("shortUrl", "https://trello.com/c/card1");
+        card.put("dateLastActivity", "2026-01-02T00:00:00.000Z");
+
+        assertFalse(dataStore.isAlreadyIndexedUnmodified(card, Map.of()));
+    }
+
+    @Test
+    public void isAlreadyIndexedUnmodified_fallsBackToUrl_whenShortUrlMissing() {
+        final Map<String, Object> card = new HashMap<>();
+        card.put("url", "https://trello.com/c/card1/full");
+        card.put("dateLastActivity", "2026-01-02T00:00:00.000Z");
+
+        final Map<String, String> indexed = Map.of("https://trello.com/c/card1/full", "2026-01-02T00:00:00.000Z");
+
+        assertTrue(dataStore.isAlreadyIndexedUnmodified(card, indexed));
+    }
+
     private static Map<String, Object> commentAction(final String id, final String text) {
         final Map<String, Object> action = new HashMap<>();
         action.put("id", id);
