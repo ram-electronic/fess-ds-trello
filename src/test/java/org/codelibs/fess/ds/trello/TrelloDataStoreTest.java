@@ -86,7 +86,7 @@ public class TrelloDataStoreTest {
         final Map<String, String> listNames = new HashMap<>();
         listNames.put("list1", "To Do");
 
-        final Map<String, Object> source = dataStore.createSourceRecord(null, "board1", listNames, card, false);
+        final Map<String, Object> source = dataStore.createSourceRecord("board1", listNames, card, false);
 
         assertEquals("card1", source.get("id"));
         assertEquals("Card Title", source.get("name"));
@@ -106,7 +106,7 @@ public class TrelloDataStoreTest {
         card.put("id", "card1");
         card.put("url", "https://trello.com/c/card1/full");
 
-        final Map<String, Object> source = dataStore.createSourceRecord(null, "board1", new HashMap<>(), card, false);
+        final Map<String, Object> source = dataStore.createSourceRecord("board1", new HashMap<>(), card, false);
 
         assertEquals("https://trello.com/c/card1/full", source.get("url"));
     }
@@ -116,16 +116,9 @@ public class TrelloDataStoreTest {
         final Map<String, Object> card = new HashMap<>();
         card.put("id", "card1");
         card.put("shortUrl", "https://trello.com/c/card1");
+        card.put("actions", Arrays.asList(commentAction("commentB", "second comment"), commentAction("commentA", "first comment")));
 
-        final TrelloClient client = new TrelloClient("key", "token") {
-            @Override
-            public List<Comment> getComments(final String cardId) {
-                assertEquals("card1", cardId);
-                return Arrays.asList(new Comment("commentA", "first comment"), new Comment("commentB", "second comment"));
-            }
-        };
-
-        final Map<String, Object> source = dataStore.createSourceRecord(client, "board1", new HashMap<>(), card, true);
+        final Map<String, Object> source = dataStore.createSourceRecord("board1", new HashMap<>(), card, true);
 
         assertEquals("first comment\n(https://trello.com/c/card1#comment-commentA)"
                 + "\n\nsecond comment\n(https://trello.com/c/card1#comment-commentB)", source.get("comments"));
@@ -137,7 +130,7 @@ public class TrelloDataStoreTest {
         card.put("id", "card1");
         card.put("labels", "not-a-list");
 
-        final Map<String, Object> source = dataStore.createSourceRecord(null, "board1", new HashMap<>(), card, false);
+        final Map<String, Object> source = dataStore.createSourceRecord("board1", new HashMap<>(), card, false);
 
         assertEquals("", source.get("labels"));
     }
@@ -193,6 +186,15 @@ public class TrelloDataStoreTest {
         assertEquals("board1", source.get("board_id"));
         assertEquals("2026-01-03T00:00:00.000Z", source.get("last_modified"));
         assertEquals("", source.get("comments"));
+    }
+
+    private static Map<String, Object> commentAction(final String id, final String text) {
+        final Map<String, Object> action = new HashMap<>();
+        action.put("id", id);
+        final Map<String, Object> data = new HashMap<>();
+        data.put("text", text);
+        action.put("data", data);
+        return action;
     }
 
     private static List<Map<String, Object>> labelList(final String... names) {

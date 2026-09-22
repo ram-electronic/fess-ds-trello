@@ -68,7 +68,8 @@ import org.codelibs.fess.util.ComponentUtil;
  * card's comments to the source record's {@code comments} field, each
  * followed by a direct link to that comment ({@code <card-url>#comment-<id>},
  * the same format Trello's own "copy link to comment" feature produces)
- * (default {@code false}; adds one extra API call per card).</li>
+ * (default {@code false}; embedded via Trello's nested resources in the
+ * same per-board card-listing call — no extra API call per card).</li>
  * <li>{@code include_closed_cards} (optional) - {@code true} to also crawl
  * archived cards (default {@code false}).</li>
  * <li>{@code include_attachments} (optional) - {@code true} to also index each
@@ -82,9 +83,10 @@ import org.codelibs.fess.util.ComponentUtil;
  * {@value #MAX_ATTACHMENT_BYTES} bytes are extracted; everything else
  * (images, video, oversized files, ...) is skipped. Text is pulled out via
  * Fess's own {@link ExtractorFactory} (the same Tika-backed extraction the
- * web crawler and other data stores use) — one extra API call plus one file
- * download per qualifying attachment, on top of {@code include_comments}'
- * per-card cost (default {@code false}).</li>
+ * web crawler and other data stores use). Attachment metadata is embedded
+ * via Trello's nested resources in the same per-board card-listing call as
+ * {@code include_comments}, so only the file download itself costs an
+ * extra request, one per qualifying attachment (default {@code false}).</li>
  * <li>{@code readInterval} - Interval in milliseconds to wait between cards
  * (default: 0).</li>
  * </ul>
@@ -158,7 +160,7 @@ public class TrelloDataStore extends AbstractDataStore {
                 }
                 final Map<String, String> listNames = client.getLists(boardId);
                 final boolean[] runningRef = { running };
-                client.getCards(boardId, card -> {
+                client.getCards(boardId, includeComments, includeAttachments, card -> {
                     if (!runningRef[0]) {
                         return;
                     }
@@ -173,7 +175,7 @@ public class TrelloDataStore extends AbstractDataStore {
                     try {
                         crawlerStatsHelper.begin(statsKey);
 
-                        final Map<String, Object> source = createSourceRecord(client, boardId, listNames, card, includeComments);
+                        final Map<String, Object> source = createSourceRecord(boardId, listNames, card, includeComments);
 
                         final Map<String, Object> resultMap = new LinkedHashMap<>(paramMap.asMap());
                         resultMap.putAll(source);
@@ -198,7 +200,7 @@ public class TrelloDataStore extends AbstractDataStore {
 
                         if (includeAttachments) {
                             storeAttachments(dataConfig, callback, paramMap, scriptMap, defaultDataMap, scriptType, crawlerStatsHelper,
-                                    client, boardId, cardId);
+                                    client, boardId, cardId, TrelloClient.parseAttachments(card));
                         }
                     } catch (final CrawlingAccessException e) {
                         logger.warn("Crawling Access Exception at : {}", dataMap, e);
@@ -281,16 +283,16 @@ public class TrelloDataStore extends AbstractDataStore {
      * Builds the source record for one Trello card, available to the
      * admin-configured scriptMap under the field names used below.
      *
-     * @param client The Trello API client (used to fetch comments, if requested).
      * @param boardId The id of the board the card belongs to.
      * @param listNames A map of list id to list name for the card's board.
-     * @param card The raw card fields, as returned by the Trello API.
-     * @param includeComments Whether to fetch and join the card's comments.
+     * @param card The raw card fields, as returned by the Trello API — including embedded
+     * comment actions when {@code includeComments} was passed to {@link TrelloClient#getCards}.
+     * @param includeComments Whether to read and join the card's embedded comments.
      * @return The source record: {@code id}, {@code name}, {@code desc}, {@code url},
      * {@code board_id}, {@code list}, {@code due}, {@code last_modified}, {@code labels},
      * and, when requested, {@code comments}.
      */
-    protected Map<String, Object> createSourceRecord(final TrelloClient client, final String boardId, final Map<String, String> listNames,
+    protected Map<String, Object> createSourceRecord(final String boardId, final Map<String, String> listNames,
             final Map<String, Object> card, final boolean includeComments) {
         final Map<String, Object> source = new HashMap<>();
         final String cardId = (String) card.get("id");
@@ -306,7 +308,7 @@ public class TrelloDataStore extends AbstractDataStore {
         source.put("labels", joinLabelNames(card.get("labels")));
 
         if (includeComments) {
-            source.put("comments", joinComments(client.getComments(cardId), cardUrl));
+            source.put("comments", joinComments(TrelloClient.parseComments(card), cardUrl));
         }
         return source;
     }
@@ -358,14 +360,17 @@ public class TrelloDataStore extends AbstractDataStore {
      * @param defaultDataMap Default field values to seed each attachment's document with.
      * @param scriptType The script language {@code scriptMap}'s values are written in.
      * @param crawlerStatsHelper Where per-document crawl stats are recorded.
-     * @param client The Trello API client.
+     * @param client The Trello API client (used only to download an attachment's bytes).
      * @param boardId The id of the board the card belongs to.
      * @param cardId The card whose attachments to index.
+     * @param attachments The card's attachments, as embedded by {@link TrelloClient#getCards}
+     * (see {@link TrelloClient#parseAttachments}) — no separate API call to list them.
      */
     private void storeAttachments(final DataConfig dataConfig, final IndexUpdateCallback callback, final DataStoreParams paramMap,
             final Map<String, String> scriptMap, final Map<String, Object> defaultDataMap, final String scriptType,
-            final CrawlerStatsHelper crawlerStatsHelper, final TrelloClient client, final String boardId, final String cardId) {
-        for (final TrelloClient.Attachment attachment : client.getAttachments(cardId)) {
+            final CrawlerStatsHelper crawlerStatsHelper, final TrelloClient client, final String boardId, final String cardId,
+            final List<TrelloClient.Attachment> attachments) {
+        for (final TrelloClient.Attachment attachment : attachments) {
             if (!isExtractable(attachment)) {
                 continue;
             }
