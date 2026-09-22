@@ -98,16 +98,35 @@ public class TrelloClient implements Closeable {
      * Iterates every card on a board, transparently paging past Trello's
      * 1000-result-per-call cap.
      *
+     * <p>
+     * When requested, comments and attachments are pulled in via Trello's
+     * <a href="https://developer.atlassian.com/cloud/trello/guides/rest-api/nested-resources/">
+     * nested resources</a> feature — embedded directly in each card object
+     * returned by this same call — rather than one extra API call per card
+     * per feature. Use {@link #parseComments(Map)}/{@link #parseAttachments(Map)}
+     * to read them back out of the card map handed to {@code consumer}.
+     * </p>
+     *
      * @param boardId The Trello board id or shortLink.
+     * @param includeComments Whether to embed each card's comment actions.
+     * @param includeAttachments Whether to embed each card's attachments.
      * @param consumer Callback invoked once per card.
      */
     @SuppressWarnings("unchecked")
-    public void getCards(final String boardId, final Consumer<Map<String, Object>> consumer) {
+    public void getCards(final String boardId, final boolean includeComments, final boolean includeAttachments,
+            final Consumer<Map<String, Object>> consumer) {
         String beforeId = null;
         while (true) {
             final Map<String, String> params = new HashMap<>();
             params.put("limit", String.valueOf(PAGE_LIMIT));
             params.put("fields", "name,desc,shortUrl,url,idList,due,dateLastActivity,labels,idMembers,closed");
+            if (includeComments) {
+                params.put("actions", "commentCard");
+            }
+            if (includeAttachments) {
+                params.put("attachments", "true");
+                params.put("attachment_fields", "name,url,mimeType,bytes,isUpload,date");
+            }
             if (beforeId != null) {
                 params.put("before", beforeId);
             }
@@ -126,18 +145,26 @@ public class TrelloClient implements Closeable {
     }
 
     /**
-     * @param cardId The Trello card id.
-     * @return Each comment on the card, oldest first.
+     * Reads a card's comments back out of its own map, as embedded by
+     * {@link #getCards} when called with {@code includeComments} true —
+     * no separate API call.
+     *
+     * @param card A card map, as handed to the {@code consumer} of {@link #getCards}.
+     * @return Each comment on the card, oldest first (or empty if comments weren't embedded).
      */
-    @SuppressWarnings("unchecked")
-    public List<Comment> getComments(final String cardId) {
-        final List<Map<String, Object>> actions = (List<Map<String, Object>>) get(API_BASE + "/cards/" + cardId + "/actions",
-                Map.of("filter", "commentCard", "fields", "data"));
+    public static List<Comment> parseComments(final Map<String, Object> card) {
+        final Object rawActions = card.get("actions");
+        if (!(rawActions instanceof final List<?> actions)) {
+            return List.of();
+        }
         final List<Comment> comments = new ArrayList<>();
         for (int i = actions.size() - 1; i >= 0; i--) {
-            final Map<String, Object> action = actions.get(i);
-            final Map<String, Object> data = (Map<String, Object>) action.get("data");
-            if (data != null && data.get("text") instanceof final String text && action.get("id") instanceof final String id) {
+            if (!(actions.get(i) instanceof final Map<?, ?> action)) {
+                continue;
+            }
+            final Object data = action.get("data");
+            if (data instanceof final Map<?, ?> dataMap && dataMap.get("text") instanceof final String text
+                    && action.get("id") instanceof final String id) {
                 comments.add(new Comment(id, text));
             }
         }
@@ -156,15 +183,24 @@ public class TrelloClient implements Closeable {
     }
 
     /**
-     * @param cardId The Trello card id.
-     * @return Every attachment on the card, in the order Trello returns them.
+     * Reads a card's attachments back out of its own map, as embedded by
+     * {@link #getCards} when called with {@code includeAttachments} true —
+     * no separate API call.
+     *
+     * @param card A card map, as handed to the {@code consumer} of {@link #getCards}.
+     * @return Every attachment on the card, in the order Trello returns them
+     * (or empty if attachments weren't embedded).
      */
-    @SuppressWarnings("unchecked")
-    public List<Attachment> getAttachments(final String cardId) {
-        final List<Map<String, Object>> attachments = (List<Map<String, Object>>) get(API_BASE + "/cards/" + cardId + "/attachments",
-                Map.of("fields", "name,url,mimeType,bytes,isUpload,date"));
+    public static List<Attachment> parseAttachments(final Map<String, Object> card) {
+        final Object rawAttachments = card.get("attachments");
+        if (!(rawAttachments instanceof final List<?> attachments)) {
+            return List.of();
+        }
         final List<Attachment> result = new ArrayList<>();
-        for (final Map<String, Object> attachment : attachments) {
+        for (final Object rawAttachment : attachments) {
+            if (!(rawAttachment instanceof final Map<?, ?> attachment)) {
+                continue;
+            }
             if (attachment.get("id") instanceof final String id && attachment.get("name") instanceof final String name
                     && attachment.get("url") instanceof final String url) {
                 final String mimeType = attachment.get("mimeType") instanceof final String mt ? mt : null;
