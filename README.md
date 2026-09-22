@@ -108,6 +108,51 @@ different goals:
   matching on almost nothing; `url` is `<card-url>#comment-<id>`, so
   clicking this specific search result jumps straight to that comment.
 
+## Search result template
+
+Fess renders every search result with one generic template
+(`WEB-INF/view/searchResults.jsp`), so a Trello card, comment, or attachment
+looks like a plain web page by default. `design/` ships an optional
+Trello-aware template:
+
+- [`design/searchResults.jsp`](design/searchResults.jsp) — Fess's own
+  **15.8.0** stock file, with its per-hit `<li>` block wrapped in a
+  `<c:choose>`: `<c:otherwise>` keeps that block's original markup
+  verbatim, and a new `<c:when test="${doc.site == 'trello.com' &&
+  !empty doc.trello_type}">` splices in the Trello branch via
+  `<%@ include file="/WEB-INF/view/trelloResult.jspf" %>`. Everything
+  outside that one `<li>` block is untouched. Diff this against your own
+  `WEB-INF/view/searchResults.jsp` before using it if you're on a
+  different Fess version.
+- [`design/trelloResult.jspf`](design/trelloResult.jspf) — the actual
+  Trello markup (icon, a Card/Comment/Attachment badge, list, label chips,
+  due date, and a link back to an attachment's parent card). Isolated here
+  so upgrading Fess never touches this file.
+
+It expects these `handler_script` fields, in addition to the ones in
+[Script (field mapping)](#script-field-mapping) above:
+
+```groovy
+trello_type=list?.toString()?.trim() ? "card" : (url.contains("#comment-") ? "comment" : "attachment")
+trello_list=list
+trello_due=due
+trello_labels=labels
+trello_card_url=card_url
+```
+
+`card_url` is on `main` (#28) but not yet in a tagged release (`v1.3.0`
+predates it) — **drop `trello_card_url=card_url`** until the next release,
+or Groovy throws `MissingPropertyException` on a field that doesn't exist
+yet (same gotcha as `comments` above). Every `trello_*` field is otherwise
+optional: absent means the generic Fess branch renders instead.
+
+**Applying it:** this repo only ships the two files above, not an installer.
+`COPY` both into `/usr/share/fess/app/WEB-INF/view/` in your Fess image
+build, alongside the plugin jar. Fess's own Page Design admin screen
+(`/admin/design`) can edit `searchResults.jsp` at runtime without a rebuild,
+but only for filenames Fess already ships — it can't add a new file like
+`trelloResult.jspf`, so that one always needs an image rebuild.
+
 ## Pagination note
 
 Trello caps a single `/boards/{id}/cards` response at 1000 results.
