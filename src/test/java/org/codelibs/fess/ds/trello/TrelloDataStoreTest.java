@@ -92,6 +92,7 @@ public class TrelloDataStoreTest {
         assertEquals("Card Title", source.get("name"));
         assertEquals("Card body", source.get("desc"));
         assertEquals("https://trello.com/c/card1", source.get("url"));
+        assertEquals("https://trello.com/c/card1", source.get("card_url"));
         assertEquals("board1", source.get("board_id"));
         assertEquals("To Do", source.get("list"));
         assertEquals("2026-01-01T00:00:00.000Z", source.get("due"));
@@ -178,15 +179,20 @@ public class TrelloDataStoreTest {
         final TrelloClient.Attachment attachment = new TrelloClient.Attachment("a1", "notes.pdf", "https://trello.com/1/notes.pdf",
                 "application/pdf", 100, true, "2026-01-03T00:00:00.000Z");
 
-        final Map<String, Object> source = dataStore.createAttachmentSourceRecord("board1", attachment, "extracted text");
+        final Map<String, Object> source =
+                dataStore.createAttachmentSourceRecord("board1", attachment, "https://trello.com/c/card1", "extracted text");
 
         assertEquals("a1", source.get("id"));
         assertEquals("notes.pdf", source.get("name"));
         assertEquals("extracted text", source.get("desc"));
         assertEquals("https://trello.com/1/notes.pdf", source.get("url"));
+        assertEquals("https://trello.com/c/card1", source.get("card_url"));
         assertEquals("board1", source.get("board_id"));
         assertEquals("2026-01-03T00:00:00.000Z", source.get("last_modified"));
         assertEquals("", source.get("comments"));
+        assertEquals("", source.get("labels"));
+        assertEquals("", source.get("list"));
+        assertEquals("", source.get("due"));
     }
 
     @Test
@@ -247,10 +253,13 @@ public class TrelloDataStoreTest {
         assertEquals("Card Title", source.get("name"));
         assertEquals("Card body\n\nthe comment text", source.get("desc"));
         assertEquals("https://trello.com/c/card1#comment-commentA", source.get("url"));
+        assertEquals("https://trello.com/c/card1", source.get("card_url"));
         assertEquals("board1", source.get("board_id"));
         assertEquals("2026-01-05T00:00:00.000Z", source.get("last_modified"));
         assertEquals("Bug, P1", source.get("labels"));
         assertEquals("", source.get("comments"));
+        assertEquals("", source.get("list"));
+        assertEquals("", source.get("due"));
     }
 
     @Test

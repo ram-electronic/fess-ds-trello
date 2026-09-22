@@ -58,7 +58,7 @@ The plugin doesn't hard-code index fields — map source fields to them in the
 ```
 title=name
 content=desc + (comments != null && comments != "" ? "\n\n" + comments : "")
-digest=desc + (comments != null && comments != "" ? "\n\n" + comments : "")
+digest=(desc + (comments != null && comments != "" ? "\n\n" + comments : "")).with { it.length() > 200 ? it.take(200) + "..." : it }
 url=url
 last_modified=last_modified
 ```
@@ -68,15 +68,38 @@ against another line's output**, so `digest=content` silently resolves to
 nothing. Repeat the whole expression instead (as above) if you want `digest`
 to match `content`.
 
-Source fields available: `id`, `name`, `desc`, `url`, `board_id`, `list`,
-`due`, `last_modified`, `labels`, and `comments` (only present when
+**`digest` should stay short — Fess doesn't truncate it for you.** A search
+result's "description" line normally comes from a highlighted snippet of
+`content`, but Fess falls back to the *raw, unhighlighted, un-truncated*
+`digest` field whenever the query didn't produce a content highlight (e.g.
+the match was only in the title) — confirmed live, downstream: with
+`digest` left as a plain, untruncated copy of `content`, results sometimes
+showed an entire card's full text (description + every comment, several KB
+of forwarded email in one real case) instead of a short preview. The
+`.with { ... }` above caps it at 200 characters, matching the length other
+Fess data stores typically use. `content` itself stays untruncated in the
+example — it's the actual indexed/searchable field and is never displayed
+directly, so truncating it would only hurt search quality for no benefit.
+
+Source fields available: `id`, `name`, `desc`, `url`, `card_url`, `board_id`,
+`list`, `due`, `last_modified`, `labels`, and `comments` (only present when
 `include_comments=true`).
 
 Attachment documents (when `include_attachments=true`) reuse the same field
-names as a card (`id`, `name`, `desc`, `url`, `board_id`, `last_modified`,
-`comments`) so the same script config indexes both without changes — `desc`
-holds the extracted attachment text instead of the card description, and
-`list`/`due`/`labels` aren't set (map to nothing/empty).
+names as a card (`id`, `name`, `desc`, `url`, `card_url`, `board_id`,
+`last_modified`, `comments`) so the same script config indexes both without
+changes — `desc` holds the extracted attachment text instead of the card
+description, and `list`/`due`/`labels` aren't set (map to nothing/empty).
+`url` is the attachment's own direct download link; `card_url` is the link
+to the Trello card it's attached to (for a card document, `card_url` is
+just the card's own `url`). Map both to separate index fields if you want
+search results to offer opening the attachment directly *or* jumping to its
+card, e.g. add a custom field:
+
+```
+url=url
+card_url=card_url
+```
 
 ### Comment documents
 
@@ -97,6 +120,90 @@ different goals:
   "sounds good") still carries the card's own topic keywords instead of
   matching on almost nothing; `url` is `<card-url>#comment-<id>`, so
   clicking this specific search result jumps straight to that comment.
+
+## Search result template
+
+Fess renders every search result with one generic template
+(`WEB-INF/view/searchResults.jsp`), so a Trello card, comment, or attachment
+looks like a plain web page by default. `design/` ships an optional
+Trello-aware template:
+
+- [`design/searchResults.jsp`](design/searchResults.jsp) — Fess's own
+  **15.8.0** stock file, with its per-hit `<li>` block wrapped in a
+  `<c:choose>`: `<c:otherwise>` keeps that block's original markup
+  verbatim, and a new `<c:when test="${doc.site == 'trello.com' &&
+  !empty doc.trello_type}">` splices in the Trello branch via
+  `<%@ include file="/WEB-INF/view/trelloResult.jspf" %>`. Everything
+  outside that one `<li>` block is untouched. Diff this against your own
+  `WEB-INF/view/searchResults.jsp` before using it if you're on a
+  different Fess version.
+- [`design/trelloResult.jspf`](design/trelloResult.jspf) — the actual
+  Trello markup (icon, a Card/Comment/Attachment badge, list, label chips,
+  due date, and a link back to an attachment's parent card). Isolated here
+  so upgrading Fess never touches this file.
+
+It expects these `handler_script` fields, in addition to the ones in
+[Script (field mapping)](#script-field-mapping) above:
+
+```groovy
+trello_type=list?.toString()?.trim() ? "card" : (url.contains("#comment-") ? "comment" : "attachment")
+trello_list=list
+trello_due=due
+trello_labels=labels
+trello_card_url=card_url
+```
+
+`card_url` requires `v1.4.0` or later (added in #28) — on an older release,
+**drop `trello_card_url=card_url`**, or Groovy throws
+`MissingPropertyException` on a field that doesn't exist yet (same gotcha
+as `comments` above). Likewise, comment and attachment documents only carry
+`list` and `due` (as empty strings) from the release after `v1.4.0` — on
+`v1.4.0` or older, every `trello_type`/`trello_list`/`trello_due` line throws
+for those documents, leaving `trello_type` unset so they render through the
+generic branch. `trello_type` relies on `list` being empty for anything but a
+card. Every `trello_*` field is otherwise optional: absent means the generic
+Fess branch renders instead.
+
+**Applying it:** this repo only ships the two files above, not an installer.
+Both are attached to [Releases](../../releases) alongside the jar (and
+attestation-signed the same way — see [Install](#install) above), so pin a
+tag instead of a raw commit if you want one. `COPY` both into
+`/usr/share/fess/app/WEB-INF/view/` in your Fess image build, alongside the
+plugin jar. Fess's own Page Design admin screen (`/admin/design`) can edit
+`searchResults.jsp` at runtime without a rebuild, but only for filenames
+Fess already ships — it can't add a new file like `trelloResult.jspf`, so
+that one always needs an image rebuild.
+
+**The `trello_*` fields also have to be told to Fess's search response,
+separately from indexing them.** Fess's search query restricts what
+OpenSearch returns per hit to a fixed field whitelist
+(`org.codelibs.fess.query.QueryFieldConfig`'s `responseFields`, passed to
+OpenSearch as a `FetchSourceContext` include list in
+`SearchEngineClient.java`) — confirmed live: `trello_type` etc. can be
+genuinely present in the index (checked with a direct OpenSearch query)
+and the template correctly deployed, and still never reach
+`doc.trello_type` in the JSP, because Fess's own query never asked
+OpenSearch to return them. Every result then renders through this
+template's generic `<c:otherwise>` branch, which looks exactly like the
+template was never applied at all.
+
+Add the `trello_*` field names to Fess's `query.additional.response.fields`
+config. That key belongs to `FessConfig`/`fess_config.properties`
+(`FessConfigImpl.get()`, resolved via a `System.getProperty("fess.config."
++ key, packagedDefault)` check — `Constants.FESS_CONFIG_PREFIX`), **not**
+Fess's separate admin-editable "System Properties" store
+(`FessProp.getSystemProperty()`, the mechanism `conf/system.properties`
+overrides go through, used for settings like `login.required`) — the two
+configuration systems are unrelated despite the similar names, and setting
+this key through the wrong one does nothing, silently. The one channel
+confirmed live to actually work is a JVM system property, e.g. via a
+`FESS_JAVA_OPTS` environment variable on `codelibs/docker-fess`'s image
+(its `run.sh` passes `FESS_JAVA_OPTS` straight through to the `java`
+invocation):
+
+```
+FESS_JAVA_OPTS=-Dfess.config.query.additional.response.fields=trello_type,trello_list,trello_due,trello_labels,trello_card_url
+```
 
 ## Pagination note
 
@@ -135,7 +242,7 @@ container yourself instead, either:
   workflow, from a specific commit) — verify with the [`gh`
   CLI](https://cli.github.com/):
   ```
-  gh attestation verify fess-ds-trello-1.3.0.jar -R ram-electronic/fess-ds-trello
+  gh attestation verify fess-ds-trello-1.4.0.jar -R ram-electronic/fess-ds-trello
   ```
   or
 - **Build it yourself** with `mvn clean package` (see [Build](#build)

@@ -91,6 +91,12 @@ import org.opensearch.index.query.QueryBuilders;
  * the same field names as a card's own source record ({@code id}, {@code name},
  * {@code desc} — the extracted file text — {@code url}, {@code board_id},
  * {@code last_modified}), so an existing script map keeps working unchanged.
+ * Each attachment's {@code url} is its own direct download link; its
+ * {@code card_url} is the parent card's link, so a script map can surface
+ * both — one to open the attachment directly, another to open the card it's
+ * attached to. A card's own source record also has {@code card_url} (equal
+ * to its {@code url}), so a script map can reference {@code card_url}
+ * unconditionally on every document regardless of type.
  * Only attachments with a recognized text-shaped extension ({@code .txt},
  * {@code .md}, {@code .pdf}, {@code .doc(x)}) up to
  * {@value #MAX_ATTACHMENT_BYTES} bytes are extracted; everything else
@@ -246,7 +252,7 @@ public class TrelloDataStore extends AbstractDataStore {
 
                         if (includeAttachments) {
                             storeAttachments(dataConfig, callback, paramMap, scriptMap, defaultDataMap, scriptType, crawlerStatsHelper,
-                                    client, boardId, cardId, TrelloClient.parseAttachments(card));
+                                    client, boardId, cardId, (String) source.get("url"), TrelloClient.parseAttachments(card));
                         }
 
                         if (includeComments) {
@@ -387,6 +393,9 @@ public class TrelloDataStore extends AbstractDataStore {
      * @param comments The card's comments (see {@link TrelloClient#getComments}), or empty if
      * {@code includeComments} is {@code false}.
      * @return The source record: {@code id}, {@code name}, {@code desc}, {@code url},
+     * {@code card_url} (the card's own URL, same as {@code url} — present so a script map
+     * can reference {@code card_url} unconditionally on both card and attachment documents;
+     * see {@link #createAttachmentSourceRecord} for the attachment case, where it differs),
      * {@code board_id}, {@code list}, {@code due}, {@code last_modified}, {@code labels},
      * and, when requested, {@code comments}.
      */
@@ -399,6 +408,7 @@ public class TrelloDataStore extends AbstractDataStore {
         source.put("name", card.get("name"));
         source.put("desc", MarkdownPlainTextRenderer.render((String) card.get("desc")));
         source.put("url", cardUrl);
+        source.put("card_url", cardUrl);
         source.put("board_id", boardId);
         source.put("list", listNames.get(card.get("idList")));
         source.put("due", card.get("due"));
@@ -470,13 +480,14 @@ public class TrelloDataStore extends AbstractDataStore {
      * @param client The Trello API client (used only to download an attachment's bytes).
      * @param boardId The id of the board the card belongs to.
      * @param cardId The card whose attachments to index.
+     * @param cardUrl The card's own URL, so the attachment's source record can link back to it.
      * @param attachments The card's attachments, as embedded by {@link TrelloClient#getCards}
      * (see {@link TrelloClient#parseAttachments}) — no separate API call to list them.
      */
     private void storeAttachments(final DataConfig dataConfig, final IndexUpdateCallback callback, final DataStoreParams paramMap,
             final Map<String, String> scriptMap, final Map<String, Object> defaultDataMap, final String scriptType,
             final CrawlerStatsHelper crawlerStatsHelper, final TrelloClient client, final String boardId, final String cardId,
-            final List<TrelloClient.Attachment> attachments) {
+            final String cardUrl, final List<TrelloClient.Attachment> attachments) {
         for (final TrelloClient.Attachment attachment : attachments) {
             if (!isExtractable(attachment)) {
                 continue;
@@ -488,7 +499,7 @@ public class TrelloDataStore extends AbstractDataStore {
                 crawlerStatsHelper.begin(statsKey);
 
                 final String content = extractText(client, attachment);
-                final Map<String, Object> source = createAttachmentSourceRecord(boardId, attachment, content);
+                final Map<String, Object> source = createAttachmentSourceRecord(boardId, attachment, cardUrl, content);
 
                 final Map<String, Object> resultMap = new LinkedHashMap<>(paramMap.asMap());
                 resultMap.putAll(source);
@@ -603,11 +614,13 @@ public class TrelloDataStore extends AbstractDataStore {
      * @return The source record: {@code id} (the comment's own action id), {@code name} (the
      * card's own title, unchanged), {@code desc} (the card's description followed by this one
      * comment's text, both Markdown-rendered), {@code url} (a direct link to this comment,
-     * {@code <card-url>#comment-<id>}), {@code board_id}, {@code last_modified} (the comment's
-     * own post date, falling back to the card's {@code dateLastActivity} if Trello didn't
-     * report one), {@code labels} (the card's own), and an empty {@code comments} (so a script
-     * map referencing it under {@code include_comments=true} doesn't fail on a field a comment
-     * document doesn't otherwise have).
+     * {@code <card-url>#comment-<id>}), {@code card_url} (the parent card's link),
+     * {@code board_id}, {@code last_modified} (the comment's own post date, falling back to the
+     * card's {@code dateLastActivity} if Trello didn't report one), {@code labels} (the card's
+     * own), and an empty {@code comments}, {@code list} and {@code due} (so a script map
+     * referencing any of those card fields doesn't fail with {@code MissingPropertyException}
+     * on a comment document; {@code list} stays empty rather than the card's own list so a
+     * script can still tell a card from a comment or attachment by it).
      */
     protected Map<String, Object> createCommentSourceRecord(final String boardId, final Map<String, Object> card,
             final TrelloClient.Comment comment) {
@@ -619,10 +632,13 @@ public class TrelloDataStore extends AbstractDataStore {
         source.put("name", card.get("name"));
         source.put("desc", StringUtil.isNotBlank(cardDesc) ? cardDesc + "\n\n" + commentText : commentText);
         source.put("url", getCardUrl(card) + "#comment-" + comment.id());
+        source.put("card_url", getCardUrl(card));
         source.put("board_id", boardId);
         source.put("last_modified", StringUtil.isNotBlank(comment.date()) ? comment.date() : card.get("dateLastActivity"));
         source.put("labels", joinLabelNames(card.get("labels")));
         source.put("comments", "");
+        source.put("list", "");
+        source.put("due", "");
         return source;
     }
 
@@ -674,23 +690,31 @@ public class TrelloDataStore extends AbstractDataStore {
      *
      * @param boardId The id of the board the attachment's card belongs to.
      * @param attachment The attachment being indexed.
+     * @param cardUrl The URL of the card this attachment belongs to — distinct from {@code url}
+     * (the attachment's own download link), so a script map can surface both: one link to open
+     * the attachment directly, another to open the card it's attached to.
      * @param content The attachment's extracted text.
      * @return The source record: {@code id}, {@code name}, {@code desc} (the extracted text),
-     * {@code url}, {@code board_id}, {@code last_modified}, and an empty {@code comments} (so
-     * a script map referencing it under {@code include_comments=true} doesn't fail on a field
-     * attachments don't otherwise have).
+     * {@code url} (the attachment's own download link), {@code card_url} (the parent card's
+     * link), {@code board_id}, {@code last_modified}, and an empty {@code comments},
+     * {@code labels}, {@code list} and {@code due} (so a script map referencing any of those
+     * card fields doesn't fail with {@code MissingPropertyException} on an attachment
+     * document).
      */
     protected Map<String, Object> createAttachmentSourceRecord(final String boardId, final TrelloClient.Attachment attachment,
-            final String content) {
+            final String cardUrl, final String content) {
         final Map<String, Object> source = new HashMap<>();
         source.put("id", attachment.id());
         source.put("name", attachment.name());
         source.put("desc", content);
         source.put("url", attachment.url());
+        source.put("card_url", cardUrl);
         source.put("board_id", boardId);
         source.put("last_modified", attachment.date());
         source.put("comments", "");
         source.put("labels", "");
+        source.put("list", "");
+        source.put("due", "");
         return source;
     }
 }

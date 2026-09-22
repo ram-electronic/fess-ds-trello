@@ -41,18 +41,26 @@ jobs:
             ! -name '*-sources.jar' ! -name '*-javadoc.jar')
           echo "path=$jar" >> "$GITHUB_OUTPUT"
 
-      # Signs the jar with Sigstore via GitHub's OIDC identity (keyless --
-      # no GPG key to generate, store, or rotate) and publishes the
-      # attestation to this repo. Proves the jar came from this exact
-      # workflow run, on this exact commit -- verify with:
-      #   gh attestation verify fess-ds-trello-1.0.0.jar -R ram-electronic/fess-ds-trello
+      # design/searchResults.jsp + trelloResult.jspf are plain repo files,
+      # not build output -- attested and attached to the release alongside
+      # the jar in the two steps below, so downstream deployments
+      # (ram-infra's roles/fess_ds_trello) can pin a released, signed
+      # asset instead of a raw commit SHA. Their filenames don't carry a
+      # version, same as the jar's own filename staying constant across
+      # tags.
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: ${{ steps.jar.outputs.path }}
+          subject-path: |
+            ${{ steps.jar.outputs.path }}
+            design/searchResults.jsp
+            design/trelloResult.jspf
 
       - name: Create release
         uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
         with:
-          files: ${{ steps.jar.outputs.path }}
+          files: |
+            ${{ steps.jar.outputs.path }}
+            design/searchResults.jsp
+            design/trelloResult.jspf
           generate_release_notes: true
