@@ -147,11 +147,14 @@ yet (same gotcha as `comments` above). Every `trello_*` field is otherwise
 optional: absent means the generic Fess branch renders instead.
 
 **Applying it:** this repo only ships the two files above, not an installer.
-`COPY` both into `/usr/share/fess/app/WEB-INF/view/` in your Fess image
-build, alongside the plugin jar. Fess's own Page Design admin screen
-(`/admin/design`) can edit `searchResults.jsp` at runtime without a rebuild,
-but only for filenames Fess already ships — it can't add a new file like
-`trelloResult.jspf`, so that one always needs an image rebuild.
+Both are attached to [Releases](../../releases) alongside the jar (and
+attestation-signed the same way — see [Install](#install) above), so pin a
+tag instead of a raw commit if you want one. `COPY` both into
+`/usr/share/fess/app/WEB-INF/view/` in your Fess image build, alongside the
+plugin jar. Fess's own Page Design admin screen (`/admin/design`) can edit
+`searchResults.jsp` at runtime without a rebuild, but only for filenames
+Fess already ships — it can't add a new file like `trelloResult.jspf`, so
+that one always needs an image rebuild.
 
 ## Pagination note
 
