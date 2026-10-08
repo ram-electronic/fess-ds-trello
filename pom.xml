@@ -109,7 +109,7 @@
 			     pulled in transitively via another dependency's own POM), so
 			     pinned explicitly here, matching the version already resolved
 			     transitively (confirmed via mvn dependency:tree). -->
-			<version>0.24.0</version>
+			<version>0.30.0</version>
 			<scope>provided</scope>
 		</dependency>
 		<dependency>
