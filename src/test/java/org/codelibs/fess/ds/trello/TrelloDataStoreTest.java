@@ -214,7 +214,8 @@ public class TrelloDataStoreTest {
         assertEquals("", source.get("comments"));
         assertEquals("", source.get("labels"));
         assertEquals("", source.get("list"));
-        assertEquals("", source.get("due"));
+        assertTrue(source.containsKey("due"));
+        assertNull(source.get("due"));
     }
 
     @Test
@@ -281,7 +282,8 @@ public class TrelloDataStoreTest {
         assertEquals("Bug, P1", source.get("labels"));
         assertEquals("", source.get("comments"));
         assertEquals("", source.get("list"));
-        assertEquals("", source.get("due"));
+        assertTrue(source.containsKey("due"));
+        assertNull(source.get("due"));
     }
 
     @Test

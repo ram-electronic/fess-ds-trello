@@ -633,10 +633,12 @@ public class TrelloDataStore extends AbstractDataStore {
      * {@code <card-url>#comment-<id>}), {@code card_url} (the parent card's link),
      * {@code board_id}, {@code last_modified} (the comment's own post date, falling back to the
      * card's {@code dateLastActivity} if Trello didn't report one), {@code labels} (the card's
-     * own), and an empty {@code comments}, {@code list} and {@code due} (so a script map
-     * referencing any of those card fields doesn't fail with {@code MissingPropertyException}
-     * on a comment document; {@code list} stays empty rather than the card's own list so a
-     * script can still tell a card from a comment or attachment by it).
+     * own), an empty {@code comments} and {@code list}, and a {@code null} {@code due} (so a
+     * script map referencing any of those card fields doesn't fail with
+     * {@code MissingPropertyException} on a comment document; {@code list} stays empty rather
+     * than the card's own list so a script can still tell a card from a comment or attachment
+     * by it; {@code due} is {@code null} rather than empty because the index maps it as a
+     * date, which rejects an empty string, while a {@code null} script result is skipped).
      */
     protected Map<String, Object> createCommentSourceRecord(final String boardId, final Map<String, Object> card,
             final TrelloClient.Comment comment) {
@@ -654,7 +656,7 @@ public class TrelloDataStore extends AbstractDataStore {
         source.put("labels", joinLabelNames(card.get("labels")));
         source.put("comments", "");
         source.put("list", "");
-        source.put("due", "");
+        source.put("due", null);
         return source;
     }
 
@@ -722,10 +724,11 @@ public class TrelloDataStore extends AbstractDataStore {
      * @param content The attachment's extracted text.
      * @return The source record: {@code id}, {@code name}, {@code desc} (the extracted text),
      * {@code url} (the attachment's own download link), {@code card_url} (the parent card's
-     * link), {@code board_id}, {@code last_modified}, and an empty {@code comments},
-     * {@code labels}, {@code list} and {@code due} (so a script map referencing any of those
-     * card fields doesn't fail with {@code MissingPropertyException} on an attachment
-     * document).
+     * link), {@code board_id}, {@code last_modified}, an empty {@code comments},
+     * {@code labels} and {@code list}, and a {@code null} {@code due} (so a script map
+     * referencing any of those card fields doesn't fail with {@code MissingPropertyException}
+     * on an attachment document; see {@link #createCommentSourceRecord} for why {@code due}
+     * is {@code null}).
      */
     protected Map<String, Object> createAttachmentSourceRecord(final String boardId, final TrelloClient.Attachment attachment,
             final String cardUrl, final String content) {
@@ -740,7 +743,7 @@ public class TrelloDataStore extends AbstractDataStore {
         source.put("comments", "");
         source.put("labels", "");
         source.put("list", "");
-        source.put("due", "");
+        source.put("due", null);
         return source;
     }
 }
