@@ -1,0 +1,57 @@
+--- a/assets/search.js
++++ b/assets/search.js
+@@ -2,6 +2,7 @@
+ import { t, languageLabel, getLocale } from "./i18n.js";
+ import { escapeHtml, formatFileSize, formatDate, renderHighlightedSnippet, renderSnippetText, sanitizeAdminHtml } from "./format.js";
+ import { navigate } from "./router.js";
++import { isTrelloDoc, trelloIcon, trelloRows } from "./trello.js";
+ 
+ /** Guard: prevent duplicate event-listener registration on hot-reload. */
+ let attached = false;
+@@ -736,6 +737,7 @@
+   } else {
+     a.textContent = d.title || d.url || "";
+   }
++  if (isTrelloDoc(d)) h3.append(trelloIcon(), " ");
+   h3.appendChild(a);
+   li.appendChild(h3);
+ 
+@@ -768,6 +770,7 @@
+     d.content_description || escapeHtml(d.digest || ""));
+   body.appendChild(description);
+   li.appendChild(body);
++  if (isTrelloDoc(d)) li.append(...trelloRows(d));
+ 
+   // --- div.site.text-truncate > (copy icon)? + cite ---
+   const site = el("div", { className: "site text-truncate" });
+--- a/index.html
++++ b/index.html
+@@ -13,6 +13,7 @@
+   <link rel="stylesheet" href="css/bootstrap.min.css">
+   <link rel="stylesheet" href="css/font-awesome.min.css">
+   <link rel="stylesheet" href="{{themePath}}/assets/styles.css">
++  <link rel="stylesheet" href="{{themePath}}/assets/trello.css">
+   <link rel="icon" href="favicon.ico">
+ 
+ </head>
+--- a/theme.yml
++++ b/theme.yml
+@@ -1,12 +1,12 @@
+ apiVersion: fess.codelibs.org/v1
+ kind: StaticTheme
+-name: bootstrap
+-displayName: "Bootstrap"
+-version: "1.5.0"
+-author: "CodeLibs Project"
+-description: "Reference static theme for Fess. Bootstrap 5-based vanilla-JS SPA exercising /api/v2/*."
++name: ram
++displayName: "RAM"
++version: "1.5.0-ram.1"
++author: "RAM Electronic"
++description: "Fess's bootstrap theme with Trello result rows, from ram-electronic/fess-ds-trello."
+ license: "Apache-2.0"
+-homepage: "https://fess.codelibs.org/"
++homepage: "https://github.com/ram-electronic/fess-ds-trello"
+ minFessVersion: "15.9"
+ supportedLocales:
+   - en

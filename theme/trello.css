@@ -1,0 +1,3 @@
+/* Trello rows from trello.js, in the result list's spacing. */
+#result .trello-meta .badge { margin-right: .25rem; font-weight: normal; }
+#result .trello-meta .badge .fa-clock { margin-right: .15rem; }

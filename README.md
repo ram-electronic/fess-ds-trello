@@ -25,7 +25,7 @@ last-activity timestamp, label names, its containing list's name, and
 ## Requirements
 
 - Java 21+, Maven 3.x
-- Fess 15.8.0 (pinned via `pom.xml`'s `<parent>` version; bump this if you
+- Fess 15.9.0 (pinned via `pom.xml`'s `<parent>` version; bump this if you
   rebuild against a newer Fess). This plugin's own version (`pom.xml`'s
   top-level `<version>`, and its release tags) is independent semver, not
   tied to Fess's version — unlike the official `codelibs/fess-ds-*` plugins,
@@ -129,26 +129,22 @@ different goals:
   matching on almost nothing; `url` is `<card-url>#comment-<id>`, so
   clicking this specific search result jumps straight to that comment.
 
-## Search result template
+## Search theme
 
-Fess renders every search result with one generic template
-(`WEB-INF/view/searchResults.jsp`), so a Trello card, comment, or attachment
-looks like a plain web page by default. `design/` ships an optional
-Trello-aware template:
+Fess 15.9 renders search results in the browser, with its static
+`bootstrap` theme (a JavaScript app over `/api/v2/search`), and has no
+per-result template to override. `theme/` builds `fess-theme-ram.zip`, a copy
+of that theme that shows Trello hits with an icon, a Card/Comment/Attachment
+badge, the list, label chips, the due date, and for an attachment a link to
+its card. Every other hit renders as stock.
 
-- [`design/searchResults.jsp`](design/searchResults.jsp) — Fess's own
-  **15.8.0** stock file, with its per-hit `<li>` block wrapped in a
-  `<c:choose>`: `<c:otherwise>` keeps that block's original markup
-  verbatim, and a new `<c:when test="${doc.site == 'trello.com' &&
-  !empty doc.trello_type}">` splices in the Trello branch via
-  `<%@ include file="/WEB-INF/view/trelloResult.jspf" %>`. Everything
-  outside that one `<li>` block is untouched. Diff this against your own
-  `WEB-INF/view/searchResults.jsp` before using it if you're on a
-  different Fess version.
-- [`design/trelloResult.jspf`](design/trelloResult.jspf) — the actual
-  Trello markup (icon, a Card/Comment/Attachment badge, list, label chips,
-  due date, and a link back to an attachment's parent card). Isolated here
-  so upgrading Fess never touches this file.
+- [`theme/build.sh`](theme/build.sh) takes the theme from `codelibs/fess` at
+  a pinned commit, applies [`theme/bootstrap.patch`](theme/bootstrap.patch)
+  (an import and two calls in `search.js`, a stylesheet link, the name
+  `ram` and version in `theme.yml`), and adds
+  [`theme/trello.js`](theme/trello.js) and `theme/trello.css`.
+- `node --test theme/trello.test.mjs` covers the field handling.
+- The zip is attached to [Releases](../../releases) and attested like the jar.
 
 It expects these `handler_script` fields, in addition to the ones in
 [Script (field mapping)](#script-field-mapping) above:
@@ -161,59 +157,32 @@ trello_labels=labels
 trello_card_url=card_url
 ```
 
-`card_url` requires `v1.4.0` or later (added in #28) — on an older release,
-**drop `trello_card_url=card_url`**, or Groovy throws
-`MissingPropertyException` on a field that doesn't exist yet (same gotcha
-as `comments` above). Likewise, comment and attachment documents only carry
-`list` (as an empty string) and `due` (as `null`, so `trello_due` is simply
-left unset — an empty string fails the index's date mapping) from `v1.5.0`
-onwards — on
-`v1.4.0` or older, every `trello_type`/`trello_list`/`trello_due` line throws
-for those documents, leaving `trello_type` unset so they render through the
-generic branch. `trello_type` relies on `list` being empty for anything but a
-card. Every `trello_*` field is otherwise optional: absent means the generic
-Fess branch renders instead.
+`card_url` needs `v1.4.0` or later, and `list`/`due` on comments and
+attachments `v1.5.0` or later; on older releases those lines throw
+`MissingPropertyException` (same gotcha as `comments` above). A hit without
+`trello_type` renders as stock.
 
-**Applying it:** this repo only ships the two files above, not an installer.
-Both are attached to [Releases](../../releases) alongside the jar (and
-attestation-signed the same way — see [Install](#install) above), so pin a
-tag instead of a raw commit if you want one. `COPY` both into
-`/usr/share/fess/app/WEB-INF/view/` in your Fess image build, alongside the
-plugin jar. Fess's own Page Design admin screen (`/admin/design`) can edit
-`searchResults.jsp` at runtime without a rebuild, but only for filenames
-Fess already ships — it can't add a new file like `trelloResult.jspf`, so
-that one always needs an image rebuild.
-
-**The `trello_*` fields also have to be told to Fess's search response,
-separately from indexing them.** Fess's search query restricts what
-OpenSearch returns per hit to a fixed field whitelist
-(`org.codelibs.fess.query.QueryFieldConfig`'s `responseFields`, passed to
-OpenSearch as a `FetchSourceContext` include list in
-`SearchEngineClient.java`) — confirmed live: `trello_type` etc. can be
-genuinely present in the index (checked with a direct OpenSearch query)
-and the template correctly deployed, and still never reach
-`doc.trello_type` in the JSP, because Fess's own query never asked
-OpenSearch to return them. Every result then renders through this
-template's generic `<c:otherwise>` branch, which looks exactly like the
-template was never applied at all.
-
-Add the `trello_*` field names to Fess's `query.additional.response.fields`
-config. That key belongs to `FessConfig`/`fess_config.properties`
-(`FessConfigImpl.get()`, resolved via a `System.getProperty("fess.config."
-+ key, packagedDefault)` check — `Constants.FESS_CONFIG_PREFIX`), **not**
-Fess's separate admin-editable "System Properties" store
-(`FessProp.getSystemProperty()`, the mechanism `conf/system.properties`
-overrides go through, used for settings like `login.required`) — the two
-configuration systems are unrelated despite the similar names, and setting
-this key through the wrong one does nothing, silently. The one channel
-confirmed live to actually work is a JVM system property, e.g. via a
-`FESS_JAVA_OPTS` environment variable on `codelibs/docker-fess`'s image
-(its `run.sh` passes `FESS_JAVA_OPTS` straight through to the `java`
-invocation):
+**Installing it:** unpack the zip into `/usr/share/fess/app/themes/ram/` in
+your Fess image (or upload it at `/admin/theme/`), set the system property
+`theme.default=ram`, and let the search API return the fields. That takes
+both keys below. They belong to `fess_config.properties`, so set them as JVM
+properties (e.g. `FESS_JAVA_OPTS` on `codelibs/docker-fess`), not as Fess
+system properties; the wrong channel does nothing, silently:
 
 ```
-FESS_JAVA_OPTS=-Dfess.config.query.additional.response.fields=trello_type,trello_list,trello_due,trello_labels,trello_card_url
+-Dfess.config.query.additional.response.fields=trello_type,trello_list,trello_due,trello_labels,trello_card_url
+-Dfess.config.query.additional.api.response.fields=trello_type,trello_list,trello_due,trello_labels,trello_card_url
 ```
+
+An unknown `theme.default` logs `The default theme 'ram' is not installed`
+once and falls back to `bootstrap`; a missing field renders the hit as
+stock.
+
+**Moving to a new Fess release:** set `FESS_COMMIT` in `theme/build.sh` to
+the new tag's commit, and the base version in `bootstrap.patch`'s
+`theme.yml` hunk to the new `bootstrap` version (`<upstream>-ram.<n>`).
+CI fails if a hunk no longer applies; redo it by hand against the new
+`search.js`, then regenerate the patch with `diff -u`.
 
 ## Pagination note
 
@@ -232,8 +201,7 @@ mvn clean package
 
 This plugin is **not published to `maven.codelibs.org`**, so Fess's usual
 `fess_plugins`/`FESS_PLUGINS` auto-fetch mechanism won't pick it up: the
-official image's `run.sh` entrypoint only downloads plugins named
-`fess-ds-*`/`fess-ingest-*`/etc. from
+official image's `run.sh` entrypoint only downloads plugins from
 `https://maven.codelibs.org/release/org/codelibs/fess/<name>/<version>/`,
 verifying a `.sha1` checksum it fetches alongside the jar — there's no
 equivalent for a jar hosted elsewhere. Get the built JAR into the Fess
@@ -260,10 +228,10 @@ container yourself instead, either:
 
 Either way, `COPY` the resulting jar to
 `/usr/share/fess/app/WEB-INF/plugin/` in a custom image layered on
-`ghcr.io/codelibs/fess:15.8.0` — that's the exact directory `run.sh` itself
+`ghcr.io/codelibs/fess:15.9.0` — that's the exact directory `run.sh` itself
 installs auto-fetched plugins into (confirmed from
 [`codelibs/docker-fess`](https://github.com/codelibs/docker-fess)'s
-`fess/15.8/run.sh`). Alternatively, push it to a private Maven repo and
+`fess/15.9/run.sh`). Alternatively, push it to a private Maven repo and
 replicate `run.sh`'s download+`.sha1` logic yourself.
 
 Then restart the `fess01` container and create the data store config as
