@@ -40,3 +40,9 @@ jobs:
 
       - name: Build and test
         run: mvn -B clean package
+
+      # Fails when bootstrap.patch no longer applies to the pinned Fess commit.
+      - name: Build and test the search theme
+        run: |
+          theme/build.sh
+          node --test theme/trello.test.mjs
