@@ -31,8 +31,10 @@ import org.codelibs.fesen.opensearch.index.query.QueryBuilders;
 import org.codelibs.fess.Constants;
 import org.codelibs.fess.app.service.FailureUrlService;
 import org.codelibs.fess.crawler.exception.CrawlingAccessException;
+import org.codelibs.fess.crawler.exception.MaxLengthExceededException;
 import org.codelibs.fess.crawler.exception.MultipleCrawlingAccessException;
 import org.codelibs.fess.crawler.extractor.ExtractorFactory;
+import org.codelibs.fess.crawler.helper.ContentLengthHelper;
 import org.codelibs.fess.ds.AbstractDataStore;
 import org.codelibs.fess.ds.callback.IndexUpdateCallback;
 import org.codelibs.fess.entity.DataStoreParams;
@@ -97,8 +99,8 @@ import org.codelibs.fess.util.ComponentUtil;
  * to its {@code url}), so a script map can reference {@code card_url}
  * unconditionally on every document regardless of type.
  * Only attachments with a recognized text-shaped extension ({@code .txt},
- * {@code .md}, {@code .pdf}, {@code .doc(x)}) up to
- * {@value #MAX_ATTACHMENT_BYTES} bytes are extracted; everything else
+ * {@code .md}, {@code .pdf}, {@code .doc(x)}) within Fess's own extractor
+ * size limit ({@code contentLengthHelper}, 10 MB by default) are extracted; everything else
  * (images, video, oversized files, ...) is skipped. Text is pulled out via
  * Fess's own {@link ExtractorFactory} (the same Tika-backed extraction the
  * web crawler and other data stores use). Attachment metadata is embedded
@@ -177,13 +179,10 @@ public class TrelloDataStore extends AbstractDataStore {
             "doc", "application/msword", //
             "docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
 
-    /** Skips extracting an attachment larger than this rather than
-     *  downloading+parsing an arbitrarily large file (Trello attachments
-     *  aren't limited to small documents — an uploaded video or disk image
-     *  would otherwise be fetched in full just to be handed to Tika). 20 MB,
-     *  generous for the {@link #EXTRACTABLE_ATTACHMENT_MIMETYPES} this
-     *  applies to. */
-    private static final long MAX_ATTACHMENT_BYTES = 20L * 1024 * 1024;
+    /** Fallback for {@link #getMaxAttachmentBytes} when Fess's own
+     *  {@code contentLengthHelper} can't be looked up -- the same 10 MB
+     *  default Fess ships in {@code crawler/contentlength.xml}. */
+    private static final long DEFAULT_MAX_ATTACHMENT_BYTES = 10L * 1024 * 1024;
 
     public TrelloDataStore() {
         super();
@@ -537,6 +536,11 @@ public class TrelloDataStore extends AbstractDataStore {
 
                 callback.store(paramMap, dataMap);
                 crawlerStatsHelper.record(statsKey, StatsAction.FINISHED);
+            } catch (final MaxLengthExceededException e) {
+                // Only reachable when Trello didn't report a size (otherwise isExtractable already
+                // skipped it) -- same outcome as that pre-download skip, not a crawl failure.
+                logger.info("Skipping oversized Trello attachment {} on card {}: {}", attachment.name(), cardId, e.getMessage());
+                crawlerStatsHelper.discard(statsKey);
             } catch (final Exception e) {
                 logger.warn("Failed to index Trello attachment {} on card {}", attachment.name(), cardId, e);
                 final FailureUrlService failureUrlService = ComponentUtil.getComponent(FailureUrlService.class);
@@ -663,18 +667,43 @@ public class TrelloDataStore extends AbstractDataStore {
     /**
      * @param attachment An attachment on a card.
      * @return {@code true} for an uploaded file (not a link-only attachment — nothing of ours
-     * to download for those), no larger than {@link #MAX_ATTACHMENT_BYTES}, whose filename
-     * extension is in {@link #EXTRACTABLE_ATTACHMENT_MIMETYPES}.
+     * to download for those), no larger than {@link #getMaxAttachmentBytes} for its MIME type,
+     * whose filename extension is in {@link #EXTRACTABLE_ATTACHMENT_MIMETYPES}.
      */
     protected boolean isExtractable(final TrelloClient.Attachment attachment) {
         if (!attachment.isUpload()) {
             return false;
         }
-        if (attachment.bytes() >= 0 && attachment.bytes() > MAX_ATTACHMENT_BYTES) {
-            logger.info("Skipping oversized Trello attachment {} ({} bytes)", attachment.name(), attachment.bytes());
+        final String mimeType = getAttachmentMimeType(attachment);
+        if (mimeType == null) {
             return false;
         }
-        return getAttachmentMimeType(attachment) != null;
+        final long maxBytes = getMaxAttachmentBytes(mimeType);
+        if (attachment.bytes() >= 0 && attachment.bytes() > maxBytes) {
+            logger.info("Skipping oversized Trello attachment {} ({} bytes, limit {} bytes)", attachment.name(), attachment.bytes(),
+                    maxBytes);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * The largest attachment worth downloading: the same limit Fess's extractor enforces
+     * ({@code contentLengthHelper}, configured in {@code crawler/contentlength.xml}), so an
+     * attachment the extractor would reject with {@link MaxLengthExceededException} anyway is
+     * skipped up front instead of being downloaded in full first and then failing on every crawl.
+     *
+     * @param mimeType The attachment's MIME type (see {@link #getAttachmentMimeType}).
+     * @return The maximum size in bytes.
+     */
+    protected long getMaxAttachmentBytes(final String mimeType) {
+        try {
+            final ContentLengthHelper contentLengthHelper = ComponentUtil.getComponent("contentLengthHelper");
+            return contentLengthHelper.getMaxLength(mimeType);
+        } catch (final RuntimeException e) {
+            logger.debug("contentLengthHelper unavailable, using default attachment size limit", e);
+            return DEFAULT_MAX_ATTACHMENT_BYTES;
+        }
     }
 
     /**
