@@ -169,6 +169,19 @@ public class TrelloDataStoreTest {
     }
 
     @Test
+    public void isExtractable_overFessLimit_false() {
+        // Between Fess's 10 MB extractor limit and the old 20 MB plugin cap: used to be downloaded,
+        // then fail extraction with MaxLengthExceededException on every crawl.
+        assertFalse(dataStore.isExtractable(
+                new TrelloClient.Attachment("a1", "big.pdf", "https://trello.com/1/big.pdf", "application/pdf", 12_960_543L, true, null)));
+    }
+
+    @Test
+    public void getMaxAttachmentBytes_withoutContainer_fessDefault() {
+        assertEquals(10L * 1024 * 1024, dataStore.getMaxAttachmentBytes("application/pdf"));
+    }
+
+    @Test
     public void isExtractable_unknownSize_stillExtractable() {
         // Trello omits `bytes` for some attachments -- -1 shouldn't be treated as "oversized".
         assertTrue(dataStore.isExtractable(
