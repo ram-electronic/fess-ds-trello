@@ -274,7 +274,7 @@ public class TrelloDataStoreTest {
     }
 
     @Test
-    public void createCommentSourceRecord_combinesCardDescAndComment() {
+    public void createCommentSourceRecord_usesCommentTextOnlyAsDesc() {
         final Map<String, Object> card = new HashMap<>();
         card.put("name", "Card Title");
         card.put("desc", "Card body");
@@ -287,7 +287,7 @@ public class TrelloDataStoreTest {
 
         assertEquals("commentA", source.get("id"));
         assertEquals("Card Title", source.get("name"));
-        assertEquals("Card body\n\nthe comment text", source.get("desc"));
+        assertEquals("the comment text", source.get("desc"));
         assertEquals("https://trello.com/c/card1#comment-commentA", source.get("url"));
         assertEquals("https://trello.com/c/card1", source.get("card_url"));
         assertEquals("board1", source.get("board_id"));
@@ -297,18 +297,6 @@ public class TrelloDataStoreTest {
         assertEquals("", source.get("list"));
         assertTrue(source.containsKey("due"));
         assertNull(source.get("due"));
-    }
-
-    @Test
-    public void createCommentSourceRecord_omitsDescSeparator_whenCardDescBlank() {
-        final Map<String, Object> card = new HashMap<>();
-        card.put("name", "Card Title");
-        card.put("shortUrl", "https://trello.com/c/card1");
-        final TrelloClient.Comment comment = new TrelloClient.Comment("commentA", "the comment text", null);
-
-        final Map<String, Object> source = dataStore.createCommentSourceRecord("board1", card, comment);
-
-        assertEquals("the comment text", source.get("desc"));
     }
 
     @Test
