@@ -75,7 +75,7 @@ import org.codelibs.fess.util.ComponentUtil;
  * the card's own document stays a single consolidated body a topic spread
  * across several comments can rank well on as a whole, and (b) index each
  * comment as its own separate document (see {@link #storeComments}) — its
- * {@code desc} the card's description plus that one comment, its {@code url}
+ * {@code desc} that one comment's text, its {@code url}
  * a direct link to that specific comment — so a single comment can also be
  * found and linked to on its own (default {@code false}; costs one extra
  * Trello API call per card — see {@link TrelloClient#getComments}. Not
@@ -632,8 +632,9 @@ public class TrelloDataStore extends AbstractDataStore {
      * @param card The raw card fields the comment belongs to, as returned by the Trello API.
      * @param comment The comment being indexed.
      * @return The source record: {@code id} (the comment's own action id), {@code name} (the
-     * card's own title, unchanged), {@code desc} (the card's description followed by this one
-     * comment's text, both Markdown-rendered), {@code url} (a direct link to this comment,
+     * card's own title, unchanged), {@code desc} (this comment's text only, Markdown-rendered -
+     * repeating the card's description would make every comment match whatever the card
+     * matches, flooding the results with one card), {@code url} (a direct link to this comment,
      * {@code <card-url>#comment-<id>}), {@code card_url} (the parent card's link),
      * {@code board_id}, {@code last_modified} (the comment's own post date, falling back to the
      * card's {@code dateLastActivity} if Trello didn't report one), {@code labels} (the card's
@@ -646,13 +647,10 @@ public class TrelloDataStore extends AbstractDataStore {
      */
     protected Map<String, Object> createCommentSourceRecord(final String boardId, final Map<String, Object> card,
             final TrelloClient.Comment comment) {
-        final String cardDesc = MarkdownPlainTextRenderer.render((String) card.get("desc"));
-        final String commentText = MarkdownPlainTextRenderer.render(comment.text());
-
         final Map<String, Object> source = new HashMap<>();
         source.put("id", comment.id());
         source.put("name", card.get("name"));
-        source.put("desc", StringUtil.isNotBlank(cardDesc) ? cardDesc + "\n\n" + commentText : commentText);
+        source.put("desc", MarkdownPlainTextRenderer.render(comment.text()));
         source.put("url", getCardUrl(card) + "#comment-" + comment.id());
         source.put("card_url", getCardUrl(card));
         source.put("board_id", boardId);
