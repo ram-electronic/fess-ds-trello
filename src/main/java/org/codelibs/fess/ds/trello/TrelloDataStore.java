@@ -44,6 +44,7 @@ import org.codelibs.fess.helper.CrawlerStatsHelper.StatsAction;
 import org.codelibs.fess.helper.CrawlerStatsHelper.StatsKeyObject;
 import org.codelibs.fess.mylasta.direction.FessConfig;
 import org.codelibs.fess.opensearch.config.exentity.DataConfig;
+import org.codelibs.fess.util.BooleanFunction;
 import org.codelibs.fess.util.ComponentUtil;
 
 /**
@@ -114,18 +115,14 @@ import org.codelibs.fess.util.ComponentUtil;
  * {@code dateLastActivity} exactly matches the {@code last_modified} value
  * already indexed for it from a previous crawl. Lets the Scheduler job run
  * frequently (every few minutes) without redoing work for cards nobody
- * touched since the last run. Looked up once per crawl via a single query
- * against Fess's own index for this data config's existing documents (see
+ * touched since the last run. Looked up once per crawl by scrolling through
+ * Fess's own index for this data config's existing documents (see
  * {@link #loadIndexedLastModified}) - no extra Trello API calls. Assumes the
  * configured {@code handler_script} maps {@code last_modified} straight
  * through from the source record's own {@code last_modified} field with no
  * transformation; if it doesn't, cards simply stop being skippable (safe -
  * every card gets reprocessed as if this were {@code false}), never the
- * other way around. Only the first {@value #MAX_INDEXED_DOCS_TO_CHECK}
- * already-indexed documents for this data config are considered; a board
- * with more previously-indexed documents than that falls back to
- * reprocessing every card beyond that count on every run (default
- * {@code false}).</li>
+ * other way around (default {@code false}).</li>
  * <li>{@code readInterval} - Interval in milliseconds to wait between cards
  * (default: 0).</li>
  * </ul>
@@ -158,11 +155,9 @@ public class TrelloDataStore extends AbstractDataStore {
 
     protected static final String SKIP_UNMODIFIED_PARAM = "skip_unmodified";
 
-    /** Caps how many already-indexed documents {@link #loadIndexedLastModified} considers per
-     *  crawl (a single, non-scrolled query) - matches OpenSearch's own default
-     *  {@code index.max_result_window}, past which a plain query silently can't page further
-     *  anyway without switching to scroll/search-after. */
-    private static final int MAX_INDEXED_DOCS_TO_CHECK = 10_000;
+    /** Page size of the scroll in {@link #loadIndexedLastModified}. Only {@code url} and
+     *  {@code last_modified} are fetched, so a page stays small. */
+    private static final int INDEXED_DOCS_PAGE_SIZE = 1_000;
 
     /** Attachment file extensions (lowercase, no dot) worth extracting text
      *  from, each mapped to the MIME type its document is indexed with —
@@ -364,30 +359,55 @@ public class TrelloDataStore extends AbstractDataStore {
      * reprocessing a card whose Trello {@code dateLastActivity} hasn't moved since the last
      * crawl. One query per crawl run, not per card or per board; no Trello API cost.
      *
+     * <p>Scrolls through every document of the data config. A single query stops at
+     * OpenSearch's {@code index.max_result_window} (10,000 by default), and a card missing from
+     * the result is never skipped: it is rewritten on every crawl, which also resets Fess's
+     * {@code content_chunk_status} and so its semantic search vectors.
+     *
      * @param dataConfig The data store config being crawled.
-     * @return Already-indexed {@code url -> last_modified} pairs for this data config, up to
-     * {@value #MAX_INDEXED_DOCS_TO_CHECK} documents.
+     * @return Already-indexed {@code url -> last_modified} pairs for this data config.
      */
     protected Map<String, String> loadIndexedLastModified(final DataConfig dataConfig) {
         final FessConfig fessConfig = ComponentUtil.getFessConfig();
-        final String urlField = fessConfig.getIndexFieldUrl();
-        final String lastModifiedField = fessConfig.getIndexFieldLastModified();
-        final QueryBuilder query = QueryBuilders.termQuery(fessConfig.getIndexFieldConfigId(), dataConfig.getId());
+        return loadIndexedLastModified(dataConfig, fessConfig.getIndexFieldUrl(), fessConfig.getIndexFieldLastModified());
+    }
 
-        final List<Map<String, Object>> docs =
-                ComponentUtil.getSearchEngineClient().getDocumentList(fessConfig.getIndexDocumentUpdateIndex(), builder -> {
-                    builder.setQuery(query).setSize(MAX_INDEXED_DOCS_TO_CHECK);
-                    builder.setFetchSource(new String[] { urlField, lastModifiedField }, null);
-                    return true;
-                });
-
+    /**
+     * @param dataConfig The data store config being crawled.
+     * @param urlField Name of the index field holding a document's URL.
+     * @param lastModifiedField Name of the index field holding a document's {@code last_modified}.
+     * @return Already-indexed {@code url -> last_modified} pairs from {@link #scrollIndexedDocs}.
+     */
+    protected Map<String, String> loadIndexedLastModified(final DataConfig dataConfig, final String urlField,
+            final String lastModifiedField) {
         final Map<String, String> result = new HashMap<>();
-        for (final Map<String, Object> doc : docs) {
+        scrollIndexedDocs(dataConfig, urlField, lastModifiedField, doc -> {
             if (doc.get(urlField) instanceof final String url && doc.get(lastModifiedField) instanceof final String lastModified) {
                 result.put(url, lastModified);
             }
-        }
+            return true;
+        });
         return result;
+    }
+
+    /**
+     * Hands every indexed document of the data config, with only {@code urlField} and
+     * {@code lastModifiedField} fetched, to {@code cursor}, page by page (a point-in-time scroll).
+     *
+     * @param dataConfig The data store config being crawled.
+     * @param urlField Name of the index field holding a document's URL.
+     * @param lastModifiedField Name of the index field holding a document's {@code last_modified}.
+     * @param cursor Called once per document; returning {@code false} stops the scroll.
+     */
+    protected void scrollIndexedDocs(final DataConfig dataConfig, final String urlField, final String lastModifiedField,
+            final BooleanFunction<Map<String, Object>> cursor) {
+        final FessConfig fessConfig = ComponentUtil.getFessConfig();
+        final QueryBuilder query = QueryBuilders.termQuery(fessConfig.getIndexFieldConfigId(), dataConfig.getId());
+        ComponentUtil.getSearchEngineClient().scrollSearch(fessConfig.getIndexDocumentUpdateIndex(), builder -> {
+            builder.setQuery(query).setSize(INDEXED_DOCS_PAGE_SIZE);
+            builder.setFetchSource(new String[] { urlField, lastModifiedField }, null);
+            return true;
+        }, cursor);
     }
 
     /**

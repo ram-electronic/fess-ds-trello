@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.codelibs.fess.entity.DataStoreParams;
+import org.codelibs.fess.opensearch.config.exentity.DataConfig;
+import org.codelibs.fess.util.BooleanFunction;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -320,5 +322,35 @@ public class TrelloDataStoreTest {
             labels.add(label);
         }
         return labels;
+    }
+
+    @Test
+    public void loadIndexedLastModified_keepsEveryScrolledDocument() {
+        // More than OpenSearch's default 10,000-hit result window, which the old single
+        // query stopped at: every card past it was rewritten on every crawl.
+        final int total = 12_000;
+        final TrelloDataStore scrolling = new TrelloDataStore() {
+            @Override
+            protected void scrollIndexedDocs(final DataConfig dataConfig, final String urlField, final String lastModifiedField,
+                    final BooleanFunction<Map<String, Object>> cursor) {
+                for (int i = 0; i < total; i++) {
+                    final Map<String, Object> doc = new HashMap<>();
+                    doc.put(urlField, "https://trello.com/c/card" + i);
+                    doc.put(lastModifiedField, "2026-11-20T10:00:00.000Z");
+                    if (!cursor.apply(doc)) {
+                        return;
+                    }
+                }
+                // Documents without a URL or a last_modified string can't be matched; skip them.
+                cursor.apply(Map.of(urlField, "https://trello.com/c/noDate"));
+                cursor.apply(Map.of(lastModifiedField, "2026-11-20T10:00:00.000Z"));
+            }
+        };
+
+        final Map<String, String> indexed = scrolling.loadIndexedLastModified(null, "url", "last_modified");
+
+        assertEquals(total, indexed.size());
+        assertEquals("2026-11-20T10:00:00.000Z", indexed.get("https://trello.com/c/card11999"));
+        assertFalse(indexed.containsKey("https://trello.com/c/noDate"));
     }
 }
