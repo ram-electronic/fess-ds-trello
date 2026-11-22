@@ -374,10 +374,11 @@ public class TrelloDataStoreTest {
         indexed.add("att", "https://trello.com/1/cards/abc/attachments/1/download/a.pdf", null);
         indexed.add("other", "https://trello.com/c/xyz#comment-3", "2026-11-19T12:00:00.000Z");
 
-        final List<String> ids = indexed.idsOf("https://trello.com/c/abc",
-                List.of(new TrelloClient.Attachment("1", "a.pdf", "https://trello.com/1/cards/abc/attachments/1/download/a.pdf",
-                        "application/pdf", 10, true, null),
-                        new TrelloClient.Attachment("2", "b.png", "https://trello.com/not-indexed.png", "image/png", 10, true, null)));
+        final String indexedUrl = "https://trello.com/1/cards/abc/attachments/1/download/a.pdf";
+        final TrelloClient.Attachment pdf = new TrelloClient.Attachment("1", "a.pdf", indexedUrl, "application/pdf", 10, true, null);
+        final TrelloClient.Attachment png = new TrelloClient.Attachment("2", "b.png", "https://x/b.png", "image/png", 10, true, null);
+
+        final List<String> ids = indexed.idsOf("https://trello.com/c/abc", List.of(pdf, png));
 
         assertEquals(List.of("card", "c1", "c2", "att"), ids);
     }

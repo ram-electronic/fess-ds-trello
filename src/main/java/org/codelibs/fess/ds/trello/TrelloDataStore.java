@@ -43,6 +43,7 @@ import org.codelibs.fess.helper.CrawlerStatsHelper;
 import org.codelibs.fess.helper.CrawlerStatsHelper.StatsAction;
 import org.codelibs.fess.helper.CrawlerStatsHelper.StatsKeyObject;
 import org.codelibs.fess.mylasta.direction.FessConfig;
+import org.codelibs.fess.opensearch.client.SearchEngineClient;
 import org.codelibs.fess.opensearch.config.exentity.DataConfig;
 import org.codelibs.fess.util.BooleanFunction;
 import org.codelibs.fess.util.ComponentUtil;
@@ -232,8 +233,8 @@ public class TrelloDataStore extends AbstractDataStore {
                     cardCounts[0]++;
                     if (skipUnmodified && isAlreadyIndexedUnmodified(card, indexedDocs)) {
                         cardCounts[1]++;
-                        keptDocIds.addAll(
-                                indexedDocs.idsOf(getCardUrl(card), includeAttachments ? TrelloClient.parseAttachments(card) : List.of()));
+                        final List<TrelloClient.Attachment> atts = includeAttachments ? TrelloClient.parseAttachments(card) : List.of();
+                        keptDocIds.addAll(indexedDocs.idsOf(getCardUrl(card), atts));
                         return;
                     }
 
@@ -328,8 +329,8 @@ public class TrelloDataStore extends AbstractDataStore {
             // Also after a failed board: the cards skipped so far are still current.
             if (skipUnmodified) {
                 keepSkippedDocs(paramMap, keptDocIds);
-                logger.info("[{}] skip_unmodified: {} indexed documents looked up, {} of {} cards unmodified, their {} documents kept.",
-                        dataConfig.getName(), indexedDocs.size(), cardCounts[1], cardCounts[0], keptDocIds.size());
+                final String skipped = cardCounts[1] + " of " + cardCounts[0] + " cards unmodified, " + keptDocIds.size() + " docs kept";
+                logger.info("[{}] skip_unmodified: {} indexed documents looked up, {}.", dataConfig.getName(), indexedDocs.size(), skipped);
             }
         }
     }
@@ -385,24 +386,22 @@ public class TrelloDataStore extends AbstractDataStore {
      * @return The data config's indexed documents.
      */
     protected IndexedDocs loadIndexedDocs(final DataConfig dataConfig) {
-        final FessConfig fessConfig = ComponentUtil.getFessConfig();
-        return loadIndexedDocs(dataConfig, fessConfig.getIndexFieldId(), fessConfig.getIndexFieldUrl(),
-                fessConfig.getIndexFieldLastModified());
+        final FessConfig fc = ComponentUtil.getFessConfig();
+        return loadIndexedDocs(dataConfig, fc.getIndexFieldId(), fc.getIndexFieldUrl(), fc.getIndexFieldLastModified());
     }
 
     /**
      * @param dataConfig The data store config being crawled.
      * @param idField Name of the field {@link #scrollIndexedDocs} puts a document's id in.
      * @param urlField Name of the index field holding a document's URL.
-     * @param lastModifiedField Name of the index field holding a document's {@code last_modified}.
+     * @param lmField Name of the index field holding a document's {@code last_modified}.
      * @return The documents {@link #scrollIndexedDocs} hands over.
      */
-    protected IndexedDocs loadIndexedDocs(final DataConfig dataConfig, final String idField, final String urlField,
-            final String lastModifiedField) {
+    protected IndexedDocs loadIndexedDocs(final DataConfig dataConfig, final String idField, final String urlField, final String lmField) {
         final IndexedDocs result = new IndexedDocs();
-        scrollIndexedDocs(dataConfig, urlField, lastModifiedField, doc -> {
+        scrollIndexedDocs(dataConfig, urlField, lmField, doc -> {
             if (doc.get(idField) instanceof final String id && doc.get(urlField) instanceof final String url) {
-                result.add(id, url, doc.get(lastModifiedField) instanceof final String lastModified ? lastModified : null);
+                result.add(id, url, doc.get(lmField) instanceof final String lastModified ? lastModified : null);
             }
             return true;
         });
@@ -459,16 +458,15 @@ public class TrelloDataStore extends AbstractDataStore {
         final FessConfig fessConfig = ComponentUtil.getFessConfig();
         final String index = fessConfig.getIndexDocumentUpdateIndex();
         final String segmentField = fessConfig.getIndexFieldSegment();
+        final SearchEngineClient client = ComponentUtil.getSearchEngineClient();
         try {
             for (int i = 0; i < ids.size(); i += KEEP_DOCS_BATCH_SIZE) {
                 final String[] batch = ids.subList(i, Math.min(i + KEEP_DOCS_BATCH_SIZE, ids.size())).toArray(String[]::new);
-                ComponentUtil.getSearchEngineClient()
-                        .updateByQuery(index, builder -> builder.setQuery(QueryBuilders.idsQuery().addIds(batch)).setFetchSource(false),
-                                (request, hit) -> request.setDoc(segmentField, sessionId));
+                final QueryBuilder query = QueryBuilders.idsQuery().addIds(batch);
+                client.updateByQuery(index, b -> b.setQuery(query).setFetchSource(false), (r, hit) -> r.setDoc(segmentField, sessionId));
             }
         } catch (final Exception e) {
-            logger.warn("Failed to keep {} documents of unmodified Trello cards; Fess deletes them as stale after this crawl.",
-                    ids.size(), e);
+            logger.warn("Failed to keep {} documents of unmodified cards; Fess deletes them as stale.", ids.size(), e);
         }
     }
 
