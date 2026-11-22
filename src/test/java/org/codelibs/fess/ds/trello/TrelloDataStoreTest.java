@@ -239,7 +239,7 @@ public class TrelloDataStoreTest {
         card.put("shortUrl", "https://trello.com/c/card1");
         card.put("dateLastActivity", "2026-01-02T00:00:00.000Z");
 
-        final Map<String, String> indexed = Map.of("https://trello.com/c/card1", "2026-01-02T00:00:00.000Z");
+        final TrelloDataStore.IndexedDocs indexed = indexedDocs("https://trello.com/c/card1", "2026-01-02T00:00:00.000Z");
 
         assertTrue(dataStore.isAlreadyIndexedUnmodified(card, indexed));
     }
@@ -250,7 +250,7 @@ public class TrelloDataStoreTest {
         card.put("shortUrl", "https://trello.com/c/card1");
         card.put("dateLastActivity", "2026-01-03T00:00:00.000Z");
 
-        final Map<String, String> indexed = Map.of("https://trello.com/c/card1", "2026-01-02T00:00:00.000Z");
+        final TrelloDataStore.IndexedDocs indexed = indexedDocs("https://trello.com/c/card1", "2026-01-02T00:00:00.000Z");
 
         assertFalse(dataStore.isAlreadyIndexedUnmodified(card, indexed));
     }
@@ -261,7 +261,7 @@ public class TrelloDataStoreTest {
         card.put("shortUrl", "https://trello.com/c/card1");
         card.put("dateLastActivity", "2026-01-02T00:00:00.000Z");
 
-        assertFalse(dataStore.isAlreadyIndexedUnmodified(card, Map.of()));
+        assertFalse(dataStore.isAlreadyIndexedUnmodified(card, new TrelloDataStore.IndexedDocs()));
     }
 
     @Test
@@ -270,7 +270,7 @@ public class TrelloDataStoreTest {
         card.put("url", "https://trello.com/c/card1/full");
         card.put("dateLastActivity", "2026-01-02T00:00:00.000Z");
 
-        final Map<String, String> indexed = Map.of("https://trello.com/c/card1/full", "2026-01-02T00:00:00.000Z");
+        final TrelloDataStore.IndexedDocs indexed = indexedDocs("https://trello.com/c/card1/full", "2026-01-02T00:00:00.000Z");
 
         assertTrue(dataStore.isAlreadyIndexedUnmodified(card, indexed));
     }
@@ -383,20 +383,9 @@ public class TrelloDataStoreTest {
         assertEquals(List.of("card", "c1", "c2", "att"), ids);
     }
 
-    @Test
-    public void isAlreadyIndexedUnmodified_comparesDateLastActivity() {
+    private static TrelloDataStore.IndexedDocs indexedDocs(final String url, final String lastModified) {
         final TrelloDataStore.IndexedDocs indexed = new TrelloDataStore.IndexedDocs();
-        indexed.add("card", "https://trello.com/c/abc", "2026-11-20T10:00:00.000Z");
-        final Map<String, Object> card = new HashMap<>();
-        card.put("shortUrl", "https://trello.com/c/abc");
-
-        card.put("dateLastActivity", "2026-11-20T10:00:00.000Z");
-        assertTrue(dataStore.isAlreadyIndexedUnmodified(card, indexed));
-
-        card.put("dateLastActivity", "2026-11-21T10:00:00.000Z");
-        assertFalse(dataStore.isAlreadyIndexedUnmodified(card, indexed));
-
-        card.put("shortUrl", "https://trello.com/c/new");
-        assertFalse(dataStore.isAlreadyIndexedUnmodified(card, indexed));
+        indexed.add("id", url, lastModified);
+        return indexed;
     }
 }
