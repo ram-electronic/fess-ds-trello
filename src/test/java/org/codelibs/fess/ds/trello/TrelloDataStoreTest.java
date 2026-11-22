@@ -239,7 +239,7 @@ public class TrelloDataStoreTest {
         card.put("shortUrl", "https://trello.com/c/card1");
         card.put("dateLastActivity", "2026-01-02T00:00:00.000Z");
 
-        final Map<String, String> indexed = Map.of("https://trello.com/c/card1", "2026-01-02T00:00:00.000Z");
+        final TrelloDataStore.IndexedDocs indexed = indexedDocs("https://trello.com/c/card1", "2026-01-02T00:00:00.000Z");
 
         assertTrue(dataStore.isAlreadyIndexedUnmodified(card, indexed));
     }
@@ -250,7 +250,7 @@ public class TrelloDataStoreTest {
         card.put("shortUrl", "https://trello.com/c/card1");
         card.put("dateLastActivity", "2026-01-03T00:00:00.000Z");
 
-        final Map<String, String> indexed = Map.of("https://trello.com/c/card1", "2026-01-02T00:00:00.000Z");
+        final TrelloDataStore.IndexedDocs indexed = indexedDocs("https://trello.com/c/card1", "2026-01-02T00:00:00.000Z");
 
         assertFalse(dataStore.isAlreadyIndexedUnmodified(card, indexed));
     }
@@ -261,7 +261,7 @@ public class TrelloDataStoreTest {
         card.put("shortUrl", "https://trello.com/c/card1");
         card.put("dateLastActivity", "2026-01-02T00:00:00.000Z");
 
-        assertFalse(dataStore.isAlreadyIndexedUnmodified(card, Map.of()));
+        assertFalse(dataStore.isAlreadyIndexedUnmodified(card, new TrelloDataStore.IndexedDocs()));
     }
 
     @Test
@@ -270,7 +270,7 @@ public class TrelloDataStoreTest {
         card.put("url", "https://trello.com/c/card1/full");
         card.put("dateLastActivity", "2026-01-02T00:00:00.000Z");
 
-        final Map<String, String> indexed = Map.of("https://trello.com/c/card1/full", "2026-01-02T00:00:00.000Z");
+        final TrelloDataStore.IndexedDocs indexed = indexedDocs("https://trello.com/c/card1/full", "2026-01-02T00:00:00.000Z");
 
         assertTrue(dataStore.isAlreadyIndexedUnmodified(card, indexed));
     }
@@ -325,9 +325,8 @@ public class TrelloDataStoreTest {
     }
 
     @Test
-    public void loadIndexedLastModified_keepsEveryScrolledDocument() {
-        // More than OpenSearch's default 10,000-hit result window, which the old single
-        // query stopped at: every card past it was rewritten on every crawl.
+    public void loadIndexedDocs_keepsEveryScrolledDocument() {
+        // More than OpenSearch's default 10,000-hit result window, which a single query stops at.
         final int total = 12_000;
         final TrelloDataStore scrolling = new TrelloDataStore() {
             @Override
@@ -335,22 +334,58 @@ public class TrelloDataStoreTest {
                     final BooleanFunction<Map<String, Object>> cursor) {
                 for (int i = 0; i < total; i++) {
                     final Map<String, Object> doc = new HashMap<>();
+                    doc.put("_id", "id" + i);
                     doc.put(urlField, "https://trello.com/c/card" + i);
                     doc.put(lastModifiedField, "2026-11-20T10:00:00.000Z");
                     if (!cursor.apply(doc)) {
                         return;
                     }
                 }
-                // Documents without a URL or a last_modified string can't be matched; skip them.
-                cursor.apply(Map.of(urlField, "https://trello.com/c/noDate"));
-                cursor.apply(Map.of(lastModifiedField, "2026-11-20T10:00:00.000Z"));
+                // Without an id or a URL a document can't be matched or kept; skip it.
+                cursor.apply(Map.of(urlField, "https://trello.com/c/noId"));
+                cursor.apply(Map.of("_id", "noUrl"));
             }
         };
 
-        final Map<String, String> indexed = scrolling.loadIndexedLastModified(null, "url", "last_modified");
+        final TrelloDataStore.IndexedDocs indexed = scrolling.loadIndexedDocs(null, "_id", "url", "last_modified");
 
         assertEquals(total, indexed.size());
-        assertEquals("2026-11-20T10:00:00.000Z", indexed.get("https://trello.com/c/card11999"));
-        assertFalse(indexed.containsKey("https://trello.com/c/noDate"));
+        assertEquals("2026-11-20T10:00:00.000Z", indexed.lastModified("https://trello.com/c/card11999"));
+        assertNull(indexed.lastModified("https://trello.com/c/noId"));
+    }
+
+    @Test
+    public void indexedDocsQuery_usesFessConfigIdWithTypePrefix() {
+        // Fess stores config_id as "D" + the data config's id; the bare id matches nothing.
+        final DataConfig dataConfig = new DataConfig();
+        dataConfig.setId("aGbnxaABFZXvgAfTIyip");
+
+        final String query = dataStore.indexedDocsQuery("config_id", dataConfig).toString();
+
+        assertTrue(query.contains("\"DaGbnxaABFZXvgAfTIyip\""), query);
+    }
+
+    @Test
+    public void indexedDocs_idsOf_cardCommentsAndIndexedAttachments() {
+        final TrelloDataStore.IndexedDocs indexed = new TrelloDataStore.IndexedDocs();
+        indexed.add("card", "https://trello.com/c/abc", "2026-11-20T10:00:00.000Z");
+        indexed.add("c1", "https://trello.com/c/abc#comment-1", "2026-11-19T10:00:00.000Z");
+        indexed.add("c2", "https://trello.com/c/abc#comment-2", "2026-11-19T11:00:00.000Z");
+        indexed.add("att", "https://trello.com/1/cards/abc/attachments/1/download/a.pdf", null);
+        indexed.add("other", "https://trello.com/c/xyz#comment-3", "2026-11-19T12:00:00.000Z");
+
+        final String indexedUrl = "https://trello.com/1/cards/abc/attachments/1/download/a.pdf";
+        final TrelloClient.Attachment pdf = new TrelloClient.Attachment("1", "a.pdf", indexedUrl, "application/pdf", 10, true, null);
+        final TrelloClient.Attachment png = new TrelloClient.Attachment("2", "b.png", "https://x/b.png", "image/png", 10, true, null);
+
+        final List<String> ids = indexed.idsOf("https://trello.com/c/abc", List.of(pdf, png));
+
+        assertEquals(List.of("card", "c1", "c2", "att"), ids);
+    }
+
+    private static TrelloDataStore.IndexedDocs indexedDocs(final String url, final String lastModified) {
+        final TrelloDataStore.IndexedDocs indexed = new TrelloDataStore.IndexedDocs();
+        indexed.add("id", url, lastModified);
+        return indexed;
     }
 }
